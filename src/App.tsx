@@ -235,6 +235,7 @@ function AppShell() {
 
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [sessionReady, setSessionReady] = useState(false)
+  const [currentUserId, setCurrentUserId] = useState('')
   const [isLoggedIn, setIsLoggedIn] = useState(false)
   const [currentUserEmail, setCurrentUserEmail] = useState('')
   const [currentUsername, setCurrentUsername] = useState('')
@@ -270,8 +271,18 @@ function AppShell() {
   const [approvalLoading, setApprovalLoading] = useState(false)
   const [approvalMessage, setApprovalMessage] = useState('')
 
+  function withTimeout<T>(promise: Promise<T>, ms: number, label: string) {
+    return Promise.race([
+      promise,
+      new Promise<T>((_, reject) => {
+        window.setTimeout(() => reject(new Error(`${label} timed out`)), ms)
+      }),
+    ])
+  }
+
   async function loadProfile(userId: string, email: string) {
     if (!supabase) {
+      setCurrentUserId(userId)
       setCurrentUserEmail(email)
       setCurrentUsername(email)
       setCurrentName('')
@@ -301,6 +312,7 @@ function AppShell() {
       return
     }
 
+    setCurrentUserId(userId)
     setCurrentUserEmail(email)
     setCurrentUsername(data.username)
     setCurrentName(data.name)
@@ -313,8 +325,15 @@ function AppShell() {
 
   useEffect(() => {
     let mounted = true
+    const forceReadyTimer = window.setTimeout(() => {
+      if (!mounted) return
+      console.warn('auth bootstrap fallback triggered')
+      resetLoggedOutState()
+      setSessionReady(true)
+    }, 5000)
 
     function resetLoggedOutState() {
+      setCurrentUserId('')
       setIsLoggedIn(false)
       setCurrentUserEmail('')
       setCurrentUsername('')
@@ -333,14 +352,14 @@ function AppShell() {
           return
         }
 
-        const { data } = await supabase.auth.getSession()
+        const { data } = await withTimeout(supabase.auth.getSession(), 4000, 'getSession')
         const session = data.session
 
         if (!mounted) return
 
         if (session?.user) {
           setIsLoggedIn(true)
-          await loadProfile(session.user.id, session.user.email ?? '')
+          await withTimeout(loadProfile(session.user.id, session.user.email ?? ''), 4000, 'loadProfile')
         } else {
           resetLoggedOutState()
         }
@@ -359,6 +378,7 @@ function AppShell() {
     if (!supabase) {
       return () => {
         mounted = false
+        window.clearTimeout(forceReadyTimer)
       }
     }
 
@@ -370,7 +390,7 @@ function AppShell() {
       try {
         if (session?.user) {
           setIsLoggedIn(true)
-          await loadProfile(session.user.id, session.user.email ?? '')
+          await withTimeout(loadProfile(session.user.id, session.user.email ?? ''), 4000, 'loadProfile')
         } else {
           resetLoggedOutState()
         }
@@ -386,6 +406,7 @@ function AppShell() {
 
     return () => {
       mounted = false
+      window.clearTimeout(forceReadyTimer)
       subscription.unsubscribe()
     }
   }, [])
@@ -508,7 +529,7 @@ function AppShell() {
       }
     }
 
-    setSignupMessage('회원가입 신청이 완료되었습니다. 홈 화면으로 이동합니다.')
+    setSignupMessage('회원가입 신청이 완료되었습니다. 이제 관리자 승인 목록에서 바로 확인할 수 있습니다.')
     setSignupEmail('')
     setSignupPassword('')
     setSignupPasswordConfirm('')
@@ -603,9 +624,10 @@ function AppShell() {
   }
 
   async function handleLogout() {
-    setLoginMessage('')
-    setSignupMessage('')
-    setApprovalMessage('')
+    setMobileMenuOpen(false)
+    setOpenDropdown(null)
+    setSessionReady(true)
+    setCurrentUserId('')
     setIsLoggedIn(false)
     setCurrentUserEmail('')
     setCurrentUsername('')
@@ -615,21 +637,18 @@ function AppShell() {
     setCurrentStudentNo(null)
     setIsAdmin(false)
     setIsApproved(false)
-    setApprovalProfiles([])
-    setMobileMenuOpen(false)
-    setOpenDropdown(null)
+
+    if (!supabase) {
+      navigate('/')
+      return
+    }
 
     try {
-      if (supabase) {
-        const { error } = await supabase.auth.signOut()
-        if (error) {
-          console.error('logout error:', error)
-        }
-      }
+      await withTimeout(supabase.auth.signOut(), 3000, 'signOut')
     } catch (error) {
-      console.error('logout unexpected error:', error)
+      console.error('logout error:', error)
     } finally {
-      navigate('/', { replace: true })
+      navigate('/')
     }
   }
 
@@ -643,18 +662,14 @@ function AppShell() {
     setApprovalLoading(true)
     setApprovalMessage('')
 
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
-
-    const query = supabase
+    const { data, error } = await supabase
       .from('profiles')
       .select('id, email, username, name, grade, class_no, student_no, is_admin, is_approved')
       .eq('is_approved', false)
-
-    const { data, error } = user?.id
-      ? await query.neq('id', user.id).order('grade', { ascending: true }).order('class_no', { ascending: true }).order('student_no', { ascending: true })
-      : await query.order('grade', { ascending: true }).order('class_no', { ascending: true }).order('student_no', { ascending: true })
+      .neq('id', currentUserId || '___no_user___')
+      .order('grade', { ascending: true })
+      .order('class_no', { ascending: true })
+      .order('student_no', { ascending: true })
 
     if (error) {
       setApprovalProfiles([])
