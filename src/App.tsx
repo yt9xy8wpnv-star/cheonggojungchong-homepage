@@ -234,7 +234,7 @@ function AppShell() {
   const closeDropdownTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
-  const [sessionReady, setSessionReady] = useState(true)
+  const [sessionReady, setSessionReady] = useState(false)
   const [currentUserId, setCurrentUserId] = useState('')
   const [isLoggedIn, setIsLoggedIn] = useState(false)
   const [currentUserEmail, setCurrentUserEmail] = useState('')
@@ -270,6 +270,8 @@ function AppShell() {
   const [approvalProfiles, setApprovalProfiles] = useState<ApprovalProfileRow[]>([])
   const [approvalLoading, setApprovalLoading] = useState(false)
   const [approvalMessage, setApprovalMessage] = useState('')
+  const [approvalInitialized, setApprovalInitialized] = useState(false)
+  const approvalsFetchedRef = useRef(false)
 
   function withTimeout<T>(promise: Promise<T>, ms: number, label: string) {
     return Promise.race([
@@ -281,46 +283,58 @@ function AppShell() {
   }
 
   async function loadProfile(userId: string, email: string) {
-    if (!supabase) {
-      setCurrentUserId(userId)
-      setCurrentUserEmail(email)
-      setCurrentUsername(email)
-      setCurrentName('')
-      setCurrentGrade(null)
-      setCurrentClassNo(null)
-      setCurrentStudentNo(null)
-      setIsAdmin(false)
-      setIsApproved(false)
-      return
-    }
-
-    const { data, error } = await supabase
-      .from('profiles')
-      .select('username, name, grade, class_no, student_no, is_admin, is_approved')
-      .eq('id', userId)
-      .single<ProfileRow>()
-
-    if (error || !data) {
-      setCurrentUserEmail(email)
-      setCurrentUsername(email)
-      setCurrentName('')
-      setCurrentGrade(null)
-      setCurrentClassNo(null)
-      setCurrentStudentNo(null)
-      setIsAdmin(false)
-      setIsApproved(false)
-      return
-    }
-
     setCurrentUserId(userId)
-    setCurrentUserEmail(email)
-    setCurrentUsername(data.username)
-    setCurrentName(data.name)
-    setCurrentGrade(data.grade)
-    setCurrentClassNo(data.class_no)
-    setCurrentStudentNo(data.student_no)
-    setIsAdmin(data.is_admin)
-    setIsApproved(data.is_approved)
+
+    if (!supabase) {
+      setCurrentUserEmail(email)
+      setCurrentUsername(email)
+      setCurrentName('')
+      setCurrentGrade(null)
+      setCurrentClassNo(null)
+      setCurrentStudentNo(null)
+      setIsAdmin(false)
+      setIsApproved(false)
+      return
+    }
+
+    try {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('username, name, grade, class_no, student_no, is_admin, is_approved')
+        .eq('id', userId)
+        .maybeSingle<ProfileRow>()
+
+      if (error || !data) {
+        setCurrentUserEmail(email)
+        setCurrentUsername(email)
+        setCurrentName('')
+        setCurrentGrade(null)
+        setCurrentClassNo(null)
+        setCurrentStudentNo(null)
+        setIsAdmin(false)
+        setIsApproved(false)
+        return
+      }
+
+      setCurrentUserEmail(email)
+      setCurrentUsername(data.username)
+      setCurrentName(data.name)
+      setCurrentGrade(data.grade)
+      setCurrentClassNo(data.class_no)
+      setCurrentStudentNo(data.student_no)
+      setIsAdmin(data.is_admin)
+      setIsApproved(data.is_approved)
+    } catch (error) {
+      console.error('loadProfile error:', error)
+      setCurrentUserEmail(email)
+      setCurrentUsername(email)
+      setCurrentName('')
+      setCurrentGrade(null)
+      setCurrentClassNo(null)
+      setCurrentStudentNo(null)
+      setIsAdmin(false)
+      setIsApproved(false)
+    }
   }
 
   useEffect(() => {
@@ -539,40 +553,54 @@ function AppShell() {
   async function ensureProfileExists() {
     if (!supabase) return true
 
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
+    try {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser()
 
-    if (!user) return false
+      if (!user) return false
 
-    const { data: existing } = await supabase
-      .from('profiles')
-      .select('id')
-      .eq('id', user.id)
-      .maybeSingle()
+      const { data: existing, error: existingError } = await supabase
+        .from('profiles')
+        .select('id')
+        .eq('id', user.id)
+        .maybeSingle()
 
-    if (existing) return true
+      if (existingError) {
+        setLoginMessage('프로필 확인 실패: ' + existingError.message)
+        return false
+      }
 
-    const meta = user.user_metadata ?? {}
+      if (existing) return true
 
-    const { error } = await supabase.from('profiles').insert({
-      id: user.id,
-      email: user.email ?? loginEmail.trim(),
-      username: String(meta.username ?? currentUsername ?? 'user'),
-      name: String(meta.name ?? currentName ?? '이름없음'),
-      grade: meta.grade ? Number(meta.grade) : null,
-      class_no: meta.class_no ? Number(meta.class_no) : null,
-      student_no: meta.student_no ? Number(meta.student_no) : null,
-      is_admin: false,
-      is_approved: false,
-    })
+      const meta = user.user_metadata ?? {}
 
-    if (error) {
-      setLoginMessage('프로필 생성 실패: ' + error.message)
+      const { error } = await supabase.from('profiles').upsert(
+        {
+          id: user.id,
+          email: user.email ?? loginEmail.trim(),
+          username: String(meta.username ?? currentUsername ?? 'user'),
+          name: String(meta.name ?? currentName ?? '이름없음'),
+          grade: meta.grade ? Number(meta.grade) : null,
+          class_no: meta.class_no ? Number(meta.class_no) : null,
+          student_no: meta.student_no ? Number(meta.student_no) : null,
+          is_admin: false,
+          is_approved: false,
+        },
+        { onConflict: 'id' },
+      )
+
+      if (error) {
+        setLoginMessage('프로필 생성 실패: ' + error.message)
+        return false
+      }
+
+      return true
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '알 수 없는 오류'
+      setLoginMessage('프로필 확인 실패: ' + message)
       return false
     }
-
-    return true
   }
 
   async function handleSupabaseLogin() {
@@ -648,34 +676,53 @@ function AppShell() {
     }
   }
 
-  async function fetchPendingApprovals() {
+  async function fetchPendingApprovals(options?: { silent?: boolean }) {
     if (!supabase) {
       setApprovalProfiles([])
       setApprovalMessage('Supabase가 연결되지 않아 승인 목록을 불러올 수 없습니다.')
+      setApprovalInitialized(true)
       return
     }
 
-    setApprovalLoading(true)
+    if (!currentUserId) {
+      setApprovalInitialized(true)
+      return
+    }
+
+    if (!options?.silent) {
+      setApprovalLoading(true)
+    }
     setApprovalMessage('')
 
-    const { data, error } = await supabase
-      .from('profiles')
-      .select('id, email, username, name, grade, class_no, student_no, is_admin, is_approved')
-      .eq('is_approved', false)
-      .neq('id', currentUserId || '___no_user___')
-      .order('grade', { ascending: true })
-      .order('class_no', { ascending: true })
-      .order('student_no', { ascending: true })
+    try {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('id, email, username, name, grade, class_no, student_no, is_admin, is_approved')
+        .eq('is_approved', false)
+        .neq('id', currentUserId)
+        .order('grade', { ascending: true })
+        .order('class_no', { ascending: true })
+        .order('student_no', { ascending: true })
 
-    if (error) {
-      setApprovalProfiles([])
-      setApprovalMessage('승인 대기 목록을 불러오지 못했습니다: ' + error.message)
+      if (error) {
+        setApprovalMessage('승인 대기 목록을 불러오지 못했습니다: ' + error.message)
+        return
+      }
+
+      setApprovalProfiles((data ?? []) as ApprovalProfileRow[])
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '알 수 없는 오류'
+      setApprovalMessage('승인 대기 목록을 불러오지 못했습니다: ' + message)
+    } finally {
       setApprovalLoading(false)
-      return
+      setApprovalInitialized(true)
     }
+  }
 
-    setApprovalProfiles((data ?? []) as ApprovalProfileRow[])
-    setApprovalLoading(false)
+  async function handleRefreshApprovals() {
+    approvalsFetchedRef.current = false
+    setApprovalInitialized(false)
+    await fetchPendingApprovals()
   }
 
   async function approveMember(profileId: string, label: string) {
@@ -1482,10 +1529,25 @@ function AppShell() {
 
   function AdminApprovalsPage() {
     useEffect(() => {
-      if (isAdmin) {
-        void fetchPendingApprovals()
-      }
-    }, [isAdmin])
+      if (!sessionReady || !isAdmin || !currentUserId) return
+      if (approvalsFetchedRef.current) return
+
+      approvalsFetchedRef.current = true
+      void fetchPendingApprovals()
+    }, [sessionReady, isAdmin, currentUserId])
+
+    if (!sessionReady) {
+      return (
+        <SectionShell
+          eyebrow="ADMIN"
+          title="회원 승인 관리"
+          description="관리자 인증 상태를 확인하는 중이야. 잠시만 기다려줘."
+          wide
+        >
+          <div className="rounded-[1.75rem] border border-slate-200 bg-slate-50 px-6 py-10 text-center text-slate-500">권한을 확인하고 있어.</div>
+        </SectionShell>
+      )
+    }
 
     if (!isLoggedIn) {
       return <Navigate to="/login" replace />
@@ -1508,11 +1570,13 @@ function AppShell() {
               <div>
                 <div className="text-sm font-semibold tracking-[0.18em] text-blue-700">PENDING APPROVALS</div>
                 <h2 className="mt-2 text-3xl font-black tracking-tight text-slate-900">승인 대기 회원 {approvalProfiles.length}명</h2>
-                <p className="mt-3 text-sm leading-relaxed text-slate-600">승인 시 해당 회원은 즉시 사이트 주요 기능을 사용할 수 있어. 거절 시 현재 구현에서는 프로필 행이 삭제돼.
-                </p>
+                <p className="mt-3 text-sm leading-relaxed text-slate-600">승인 시 해당 회원은 즉시 사이트 주요 기능을 사용할 수 있어. 거절 시 현재 구현에서는 프로필 행이 삭제돼.</p>
+                {approvalLoading && approvalProfiles.length > 0 && (
+                  <div className="mt-3 text-xs font-medium text-slate-500">목록을 새로 확인하고 있어.</div>
+                )}
               </div>
               <button
-                onClick={() => void fetchPendingApprovals()}
+                onClick={() => void handleRefreshApprovals()}
                 className="rounded-2xl border border-slate-300 bg-white px-5 py-3 text-sm font-semibold text-slate-800 transition hover:border-blue-300 hover:text-blue-700"
               >
                 새로고침
@@ -1539,9 +1603,9 @@ function AppShell() {
                     </tr>
                   </thead>
                   <tbody className="bg-white text-slate-800">
-                    {approvalLoading ? (
+                    {!approvalInitialized && approvalProfiles.length === 0 ? (
                       <tr>
-                        <td colSpan={6} className="px-6 py-10 text-center text-slate-500">승인 대기 목록을 불러오는 중이야.</td>
+                        <td colSpan={6} className="px-6 py-10 text-center text-slate-500">승인 대기 목록을 준비하는 중이야.</td>
                       </tr>
                     ) : approvalProfiles.length === 0 ? (
                       <tr>
@@ -1782,6 +1846,14 @@ function AppShell() {
   }
 
   function MyPage() {
+    if (!sessionReady) {
+      return (
+        <SectionShell eyebrow="PROFILE" title="내 정보" description="로그인 상태를 확인하는 중이야. 잠시만 기다려줘.">
+          <div className="rounded-[1.75rem] border border-slate-200 bg-slate-50 px-6 py-10 text-center text-slate-500">계정 정보를 확인하고 있어.</div>
+        </SectionShell>
+      )
+    }
+
     if (!isLoggedIn) {
       return <Navigate to="/login" replace />
     }
@@ -1794,7 +1866,7 @@ function AppShell() {
 
     return (
       <SectionShell
-        eyebrow="MY PAGE"
+        eyebrow="PROFILE"
         title={currentName || currentUsername || currentUserEmail || '내 정보'}
         description="현재 로그인한 계정의 기본 정보와 권한 상태를 확인할 수 있는 공간이야."
       >
