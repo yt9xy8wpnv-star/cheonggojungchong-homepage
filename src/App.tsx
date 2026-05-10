@@ -621,13 +621,7 @@ function AppShell() {
   }
 
   function SupabaseWarning() {
-    if (supabaseEnabled) return null
-
-    return (
-      <div className="mx-auto mb-8 max-w-6xl rounded-[1.5rem] border border-amber-300 bg-amber-50 px-5 py-4 text-sm leading-relaxed text-amber-900">
-        <span className="font-bold">Supabase 환경변수가 아직 연결되지 않았어.</span> 로컬에서는 <code className="rounded bg-white px-1 py-0.5">.env.local</code>, 배포본에서는 Vercel Environment Variables를 확인해줘.
-      </div>
-    )
+    return null
   }
 
   function HomePage() {
@@ -855,217 +849,206 @@ function AppShell() {
     )
   }
 
-  function LoginPage() {
-    return (
-      <SectionShell
-        eyebrow="AUTH"
-        title="로그인"
-        description="이제 브라우저 임시 저장이 아니라 실제 Supabase 인증으로 로그인하는 구조야. 로그인은 이메일과 비밀번호로 진행해."
-      >
-        <div className="mx-auto max-w-xl rounded-[1.8rem] border border-slate-200 bg-slate-50 p-6 md:p-8">
-          <div className="space-y-5">
-            <div>
-              <label className="mb-2 block text-sm font-semibold text-slate-700">이메일</label>
+  const loginPageElement = (
+    <SectionShell
+      eyebrow="AUTH"
+      title="로그인"
+      description="이제 브라우저 임시 저장이 아니라 실제 Supabase 인증으로 로그인하는 구조야. 로그인은 이메일과 비밀번호로 진행해."
+    >
+      <div className="mx-auto max-w-xl rounded-[1.8rem] border border-slate-200 bg-slate-50 p-6 md:p-8">
+        <div className="space-y-5">
+          <div>
+            <label className="mb-2 block text-sm font-semibold text-slate-700">이메일</label>
+            <input
+              value={loginEmail}
+              onChange={(e) => setLoginEmail(e.target.value)}
+              className="w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 outline-none transition focus:border-blue-400"
+              placeholder="example@email.com"
+            />
+          </div>
+          <div>
+            <label className="mb-2 block text-sm font-semibold text-slate-700">비밀번호</label>
+            <div className="relative">
               <input
-                value={loginEmail}
-                onChange={(e) => setLoginEmail(e.target.value)}
-                className="w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 outline-none transition focus:border-blue-400"
-                placeholder="example@email.com"
+                type={showLoginPassword ? 'text' : 'password'}
+                value={loginPassword}
+                onChange={(e) => setLoginPassword(e.target.value)}
+                className="w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 pr-16 outline-none transition focus:border-blue-400"
+                placeholder="비밀번호"
               />
+              <button
+                type="button"
+                onClick={() => setShowLoginPassword((prev) => !prev)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-sm font-semibold text-slate-500"
+              >
+                {showLoginPassword ? '숨김' : '보기'}
+              </button>
             </div>
-            <div>
-              <label className="mb-2 block text-sm font-semibold text-slate-700">비밀번호</label>
-              <div className="relative">
-                <input
-                  type={showLoginPassword ? 'text' : 'password'}
-                  value={loginPassword}
-                  onChange={(e) => setLoginPassword(e.target.value)}
-                  className="w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 pr-16 outline-none transition focus:border-blue-400"
-                  placeholder="비밀번호"
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowLoginPassword((prev) => !prev)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-sm font-semibold text-slate-500"
-                >
-                  {showLoginPassword ? '숨김' : '보기'}
-                </button>
-              </div>
-            </div>
-            {loginMessage && <div className={`text-sm font-medium ${loginMessage.includes('성공') ? 'text-blue-700' : 'text-red-500'}`}>{loginMessage}</div>}
-            <button
-              onClick={handleSupabaseLogin}
-              className="w-full rounded-2xl bg-blue-700 px-6 py-3.5 text-sm font-semibold text-white shadow-lg shadow-blue-700/20 transition hover:bg-blue-800"
-            >
-              로그인
-            </button>
-            <div className="text-center text-sm text-slate-500">아직 회원이 아니신가요?</div>
-            <button
-              onClick={() => navigate('/signup')}
-              className="w-full rounded-2xl border border-slate-300 bg-white px-6 py-3.5 text-sm font-semibold text-slate-800 transition hover:border-blue-300 hover:text-blue-700"
-            >
-              회원가입
-            </button>
+          </div>
+          {loginMessage && <div className={`text-sm font-medium ${loginMessage.includes('성공') ? 'text-blue-700' : 'text-red-500'}`}>{loginMessage}</div>}
+          <button
+            onClick={handleSupabaseLogin}
+            className="w-full rounded-2xl bg-blue-700 px-6 py-3.5 text-sm font-semibold text-white shadow-lg shadow-blue-700/20 transition hover:bg-blue-800"
+          >
+            로그인
+          </button>
+          <div className="text-center text-sm text-slate-500">아직 회원이 아니신가요?</div>
+          <button
+            onClick={() => navigate('/signup')}
+            className="w-full rounded-2xl border border-slate-300 bg-white px-6 py-3.5 text-sm font-semibold text-slate-800 transition hover:border-blue-300 hover:text-blue-700"
+          >
+            회원가입
+          </button>
+        </div>
+      </div>
+    </SectionShell>
+  )
+
+  const signupPageElement = (
+    <SectionShell
+      eyebrow="JOIN"
+      title="청고정총에 오신 것을 환영합니다"
+      description="이 페이지는 실제 Supabase 회원가입으로 연결되어 있어. 로그인용 값은 이메일과 비밀번호고, 아이디는 사이트 표시용 username으로 저장돼."
+    >
+      <div className="rounded-[1.8rem] border border-slate-200 bg-slate-50 p-6 md:p-8">
+        <div className="grid gap-5 md:grid-cols-2">
+          <div>
+            <label className="mb-2 block text-sm font-semibold text-slate-700">이메일</label>
+            <input value={signupEmail} onChange={(e) => setSignupEmail(e.target.value)} className="w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 outline-none transition focus:border-blue-400" placeholder="example@email.com" />
+          </div>
+          <div>
+            <label className="mb-2 block text-sm font-semibold text-slate-700">아이디</label>
+            <input value={signupUsername} onChange={(e) => setSignupUsername(e.target.value)} className="w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 outline-none transition focus:border-blue-400" placeholder="사이트에서 표시될 아이디" />
+          </div>
+          <div>
+            <label className="mb-2 block text-sm font-semibold text-slate-700">이름</label>
+            <input value={signupName} onChange={(e) => setSignupName(e.target.value)} className="w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 outline-none transition focus:border-blue-400" placeholder="이름" />
+          </div>
+          <div>
+            <label className="mb-2 block text-sm font-semibold text-slate-700">학년</label>
+            <select value={signupGrade} onChange={(e) => setSignupGrade(e.target.value)} className="w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 outline-none transition focus:border-blue-400">
+              {['1', '2', '3'].map((n) => (
+                <option key={n} value={n}>{n}학년</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="mb-2 block text-sm font-semibold text-slate-700">반</label>
+            <select value={signupClassNo} onChange={(e) => setSignupClassNo(e.target.value)} className="w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 outline-none transition focus:border-blue-400">
+              {Array.from({ length: 12 }, (_, index) => String(index + 1)).map((n) => (
+                <option key={n} value={n}>{n}반</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="mb-2 block text-sm font-semibold text-slate-700">번호</label>
+            <input value={signupStudentNo} onChange={(e) => setSignupStudentNo(e.target.value)} className="w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 outline-none transition focus:border-blue-400" placeholder="번호" inputMode="numeric" />
           </div>
         </div>
-      </SectionShell>
-    )
-  }
 
-  function SignupPage() {
-    const passwordInvalid = signupPassword.length > 0 && (signupPassword.length < 8 || signupPassword.length > 20)
-    const passwordMismatch = signupPasswordConfirm.length > 0 && signupPassword !== signupPasswordConfirm
-    const inquiryDuplicateError =
-      signupSubjectSelections.inquiry1 !== '응시하지 않음' &&
-      signupSubjectSelections.inquiry2 !== '응시하지 않음' &&
-      signupSubjectSelections.inquiry1 === signupSubjectSelections.inquiry2
+        <div className="mt-5 grid gap-5 md:grid-cols-1">
+          <div>
+            <label className="mb-2 block text-sm font-semibold text-slate-700">비밀번호</label>
+            <div className="relative">
+              <input
+                type={showSignupPassword ? 'text' : 'password'}
+                value={signupPassword}
+                onChange={(e) => setSignupPassword(e.target.value)}
+                className={`w-full rounded-2xl border bg-white px-4 py-3 pr-16 outline-none transition ${signupPassword.length > 0 && (signupPassword.length < 8 || signupPassword.length > 20) ? 'border-red-400 focus:border-red-400' : 'border-slate-300 focus:border-blue-400'}`}
+                placeholder="8자 이상 20자 이하"
+              />
+              <button type="button" onClick={() => setShowSignupPassword((prev) => !prev)} className="absolute right-3 top-1/2 -translate-y-1/2 text-sm font-semibold text-slate-500">
+                {showSignupPassword ? '숨김' : '보기'}
+              </button>
+            </div>
+            {signupPassword.length > 0 && (signupPassword.length < 8 || signupPassword.length > 20) && <div className="mt-2 text-sm font-medium text-red-500">비밀번호는 8자 이상 20자 이하여야 합니다.</div>}
+          </div>
+          <div>
+            <label className="mb-2 block text-sm font-semibold text-slate-700">비밀번호 확인</label>
+            <div className="relative">
+              <input
+                type={showSignupPasswordConfirm ? 'text' : 'password'}
+                value={signupPasswordConfirm}
+                onChange={(e) => setSignupPasswordConfirm(e.target.value)}
+                className={`w-full rounded-2xl border bg-white px-4 py-3 pr-16 outline-none transition ${signupPasswordConfirm.length > 0 && signupPassword !== signupPasswordConfirm ? 'border-red-400 focus:border-red-400' : 'border-slate-300 focus:border-blue-400'}`}
+                placeholder="비밀번호 재입력"
+              />
+              <button type="button" onClick={() => setShowSignupPasswordConfirm((prev) => !prev)} className="absolute right-3 top-1/2 -translate-y-1/2 text-sm font-semibold text-slate-500">
+                {showSignupPasswordConfirm ? '숨김' : '보기'}
+              </button>
+            </div>
+            {signupPasswordConfirm.length > 0 && signupPassword !== signupPasswordConfirm && <div className="mt-2 text-sm font-medium text-red-500">비밀번호가 서로 일치하지 않습니다.</div>}
+          </div>
+        </div>
 
-    return (
-      <SectionShell
-        eyebrow="JOIN"
-        title="청고정총에 오신 것을 환영합니다"
-        description="이 페이지는 실제 Supabase 회원가입으로 연결되어 있어. 로그인용 값은 이메일과 비밀번호고, 아이디는 사이트 표시용 username으로 저장돼."
-      >
-        <div className="rounded-[1.8rem] border border-slate-200 bg-slate-50 p-6 md:p-8">
-          <div className="grid gap-5 md:grid-cols-2">
+        <div className="mt-6 rounded-[1.5rem] border border-slate-200 bg-white p-5 md:p-6">
+          <div className="text-sm font-semibold tracking-[0.18em] text-blue-700">선택과목 설정</div>
+          <div className="mt-4 grid gap-5 md:grid-cols-2 xl:grid-cols-3">
             <div>
-              <label className="mb-2 block text-sm font-semibold text-slate-700">이메일</label>
-              <input value={signupEmail} onChange={(e) => setSignupEmail(e.target.value)} className="w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 outline-none transition focus:border-blue-400" placeholder="example@email.com" />
-            </div>
-            <div>
-              <label className="mb-2 block text-sm font-semibold text-slate-700">아이디</label>
-              <input value={signupUsername} onChange={(e) => setSignupUsername(e.target.value)} className="w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 outline-none transition focus:border-blue-400" placeholder="사이트에서 표시될 아이디" />
-            </div>
-            <div>
-              <label className="mb-2 block text-sm font-semibold text-slate-700">이름</label>
-              <input value={signupName} onChange={(e) => setSignupName(e.target.value)} className="w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 outline-none transition focus:border-blue-400" placeholder="이름" />
-            </div>
-            <div>
-              <label className="mb-2 block text-sm font-semibold text-slate-700">학년</label>
-              <select value={signupGrade} onChange={(e) => setSignupGrade(e.target.value)} className="w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 outline-none transition focus:border-blue-400">
-                {['1', '2', '3'].map((n) => (
-                  <option key={n} value={n}>{n}학년</option>
+              <label className="mb-2 block text-sm font-semibold text-slate-700">국어 선택과목</label>
+              <select value={signupSubjectSelections.korean} onChange={(e) => updateSignupSubject('korean', e.target.value)} className="w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 outline-none transition focus:border-blue-400">
+                {koreanOptions.map((subject) => (
+                  <option key={subject} value={subject}>{subject}</option>
                 ))}
               </select>
             </div>
             <div>
-              <label className="mb-2 block text-sm font-semibold text-slate-700">반</label>
-              <select value={signupClassNo} onChange={(e) => setSignupClassNo(e.target.value)} className="w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 outline-none transition focus:border-blue-400">
-                {Array.from({ length: 12 }, (_, index) => String(index + 1)).map((n) => (
-                  <option key={n} value={n}>{n}반</option>
+              <label className="mb-2 block text-sm font-semibold text-slate-700">수학 선택과목</label>
+              <select value={signupSubjectSelections.math} onChange={(e) => updateSignupSubject('math', e.target.value)} className="w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 outline-none transition focus:border-blue-400">
+                {mathOptions.map((subject) => (
+                  <option key={subject} value={subject}>{subject}</option>
                 ))}
               </select>
             </div>
             <div>
-              <label className="mb-2 block text-sm font-semibold text-slate-700">번호</label>
-              <input value={signupStudentNo} onChange={(e) => setSignupStudentNo(e.target.value)} className="w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 outline-none transition focus:border-blue-400" placeholder="번호" inputMode="numeric" />
-            </div>
-          </div>
-
-          <div className="mt-5 grid gap-5 md:grid-cols-1">
-            <div>
-              <label className="mb-2 block text-sm font-semibold text-slate-700">비밀번호</label>
-              <div className="relative">
-                <input
-                  type={showSignupPassword ? 'text' : 'password'}
-                  value={signupPassword}
-                  onChange={(e) => setSignupPassword(e.target.value)}
-                  className={`w-full rounded-2xl border bg-white px-4 py-3 pr-16 outline-none transition ${passwordInvalid ? 'border-red-400 focus:border-red-400' : 'border-slate-300 focus:border-blue-400'}`}
-                  placeholder="8자 이상 20자 이하"
-                />
-                <button type="button" onClick={() => setShowSignupPassword((prev) => !prev)} className="absolute right-3 top-1/2 -translate-y-1/2 text-sm font-semibold text-slate-500">
-                  {showSignupPassword ? '숨김' : '보기'}
-                </button>
-              </div>
-              {passwordInvalid && <div className="mt-2 text-sm font-medium text-red-500">비밀번호는 8자 이상 20자 이하여야 합니다.</div>}
+              <label className="mb-2 block text-sm font-semibold text-slate-700">영어 응시 여부</label>
+              <select value={signupSubjectSelections.english} onChange={(e) => updateSignupSubject('english', e.target.value)} className="w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 outline-none transition focus:border-blue-400">
+                {['응시함', '응시하지 않음'].map((item) => (
+                  <option key={item} value={item}>{item}</option>
+                ))}
+              </select>
             </div>
             <div>
-              <label className="mb-2 block text-sm font-semibold text-slate-700">비밀번호 확인</label>
-              <div className="relative">
-                <input
-                  type={showSignupPasswordConfirm ? 'text' : 'password'}
-                  value={signupPasswordConfirm}
-                  onChange={(e) => setSignupPasswordConfirm(e.target.value)}
-                  className={`w-full rounded-2xl border bg-white px-4 py-3 pr-16 outline-none transition ${passwordMismatch ? 'border-red-400 focus:border-red-400' : 'border-slate-300 focus:border-blue-400'}`}
-                  placeholder="비밀번호 재입력"
-                />
-                <button type="button" onClick={() => setShowSignupPasswordConfirm((prev) => !prev)} className="absolute right-3 top-1/2 -translate-y-1/2 text-sm font-semibold text-slate-500">
-                  {showSignupPasswordConfirm ? '숨김' : '보기'}
-                </button>
-              </div>
-              {passwordMismatch && <div className="mt-2 text-sm font-medium text-red-500">비밀번호가 서로 일치하지 않습니다.</div>}
+              <label className="mb-2 block text-sm font-semibold text-slate-700">탐구 1</label>
+              <select value={signupSubjectSelections.inquiry1} onChange={(e) => updateSignupSubject('inquiry1', e.target.value)} className={`w-full rounded-2xl border bg-white px-4 py-3 outline-none transition ${signupSubjectSelections.inquiry1 !== '응시하지 않음' && signupSubjectSelections.inquiry2 !== '응시하지 않음' && signupSubjectSelections.inquiry1 === signupSubjectSelections.inquiry2 ? 'border-red-400 focus:border-red-400' : 'border-slate-300 focus:border-blue-400'}`}>
+                {['응시하지 않음', ...inquiryOptions].map((subject) => (
+                  <option key={subject} value={subject}>{subject}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="mb-2 block text-sm font-semibold text-slate-700">탐구 2</label>
+              <select value={signupSubjectSelections.inquiry2} onChange={(e) => updateSignupSubject('inquiry2', e.target.value)} className={`w-full rounded-2xl border bg-white px-4 py-3 outline-none transition ${signupSubjectSelections.inquiry1 !== '응시하지 않음' && signupSubjectSelections.inquiry2 !== '응시하지 않음' && signupSubjectSelections.inquiry1 === signupSubjectSelections.inquiry2 ? 'border-red-400 focus:border-red-400' : 'border-slate-300 focus:border-blue-400'}`}>
+                {['응시하지 않음', ...inquiryOptions].map((subject) => (
+                  <option key={subject} value={subject}>{subject}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="mb-2 block text-sm font-semibold text-slate-700">제2외국어 / 한문</label>
+              <select value={signupSubjectSelections.secondForeign} onChange={(e) => updateSignupSubject('secondForeign', e.target.value)} className="w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 outline-none transition focus:border-blue-400">
+                {['응시하지 않음', '독일어Ⅰ', '프랑스어Ⅰ', '스페인어Ⅰ', '중국어Ⅰ', '일본어Ⅰ', '러시아어Ⅰ', '아랍어Ⅰ', '베트남어Ⅰ', '한문Ⅰ'].map((subject) => (
+                  <option key={subject} value={subject}>{subject}</option>
+                ))}
+              </select>
             </div>
           </div>
-
-          <div className="mt-6 rounded-[1.5rem] border border-slate-200 bg-white p-5 md:p-6">
-            <div className="text-sm font-semibold tracking-[0.18em] text-blue-700">선택과목 설정</div>
-            <div className="mt-4 grid gap-5 md:grid-cols-2 xl:grid-cols-3">
-              <div>
-                <label className="mb-2 block text-sm font-semibold text-slate-700">국어 선택과목</label>
-                <select value={signupSubjectSelections.korean} onChange={(e) => updateSignupSubject('korean', e.target.value)} className="w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 outline-none transition focus:border-blue-400">
-                  {koreanOptions.map((subject) => (
-                    <option key={subject} value={subject}>{subject}</option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="mb-2 block text-sm font-semibold text-slate-700">수학 선택과목</label>
-                <select value={signupSubjectSelections.math} onChange={(e) => updateSignupSubject('math', e.target.value)} className="w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 outline-none transition focus:border-blue-400">
-                  {mathOptions.map((subject) => (
-                    <option key={subject} value={subject}>{subject}</option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="mb-2 block text-sm font-semibold text-slate-700">영어 응시 여부</label>
-                <select value={signupSubjectSelections.english} onChange={(e) => updateSignupSubject('english', e.target.value)} className="w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 outline-none transition focus:border-blue-400">
-                  {['응시함', '응시하지 않음'].map((item) => (
-                    <option key={item} value={item}>{item}</option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="mb-2 block text-sm font-semibold text-slate-700">탐구 1</label>
-                <select value={signupSubjectSelections.inquiry1} onChange={(e) => updateSignupSubject('inquiry1', e.target.value)} className={`w-full rounded-2xl border bg-white px-4 py-3 outline-none transition ${inquiryDuplicateError ? 'border-red-400 focus:border-red-400' : 'border-slate-300 focus:border-blue-400'}`}>
-                  {['응시하지 않음', ...inquiryOptions].map((subject) => (
-                    <option key={subject} value={subject}>{subject}</option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="mb-2 block text-sm font-semibold text-slate-700">탐구 2</label>
-                <select value={signupSubjectSelections.inquiry2} onChange={(e) => updateSignupSubject('inquiry2', e.target.value)} className={`w-full rounded-2xl border bg-white px-4 py-3 outline-none transition ${inquiryDuplicateError ? 'border-red-400 focus:border-red-400' : 'border-slate-300 focus:border-blue-400'}`}>
-                  {['응시하지 않음', ...inquiryOptions].map((subject) => (
-                    <option key={subject} value={subject}>{subject}</option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="mb-2 block text-sm font-semibold text-slate-700">제2외국어 / 한문</label>
-                <select value={signupSubjectSelections.secondForeign} onChange={(e) => updateSignupSubject('secondForeign', e.target.value)} className="w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 outline-none transition focus:border-blue-400">
-                  {['응시하지 않음', '독일어Ⅰ', '프랑스어Ⅰ', '스페인어Ⅰ', '중국어Ⅰ', '일본어Ⅰ', '러시아어Ⅰ', '아랍어Ⅰ', '베트남어Ⅰ', '한문Ⅰ'].map((subject) => (
-                    <option key={subject} value={subject}>{subject}</option>
-                  ))}
-                </select>
-              </div>
-            </div>
-            {inquiryDuplicateError && <div className="mt-4 text-sm font-medium text-red-500">탐구 1과 탐구 2의 선택과목이 같습니다. 서로 다르게 선택해야 합니다.</div>}
-          </div>
-
-          {signupMessage && <div className={`mt-5 text-sm font-medium ${signupMessage.includes('완료') ? 'text-blue-700' : 'text-red-500'}`}>{signupMessage}</div>}
-
-          <div className="mt-6 flex flex-wrap gap-3">
-            <button onClick={handleSupabaseSignup} className="rounded-2xl bg-blue-700 px-6 py-3.5 text-sm font-semibold text-white shadow-lg shadow-blue-700/20 transition hover:bg-blue-800">
-              회원가입 신청
-            </button>
-            <button onClick={() => navigate('/login')} className="rounded-2xl border border-slate-300 bg-white px-6 py-3.5 text-sm font-semibold text-slate-800 transition hover:border-blue-300 hover:text-blue-700">
-              로그인으로 이동
-            </button>
-          </div>
+          {signupSubjectSelections.inquiry1 !== '응시하지 않음' && signupSubjectSelections.inquiry2 !== '응시하지 않음' && signupSubjectSelections.inquiry1 === signupSubjectSelections.inquiry2 && <div className="mt-4 text-sm font-medium text-red-500">탐구 1과 탐구 2의 선택과목이 같습니다. 서로 다르게 선택해야 합니다.</div>}
         </div>
-      </SectionShell>
-    )
-  }
+
+        {signupMessage && <div className={`mt-5 text-sm font-medium ${signupMessage.includes('완료') ? 'text-blue-700' : 'text-red-500'}`}>{signupMessage}</div>}
+
+        <div className="mt-6 flex flex-wrap gap-3">
+          <button onClick={handleSupabaseSignup} className="rounded-2xl bg-blue-700 px-6 py-3.5 text-sm font-semibold text-white shadow-lg shadow-blue-700/20 transition hover:bg-blue-800">
+            회원가입 신청
+          </button>
+          <button onClick={() => navigate('/login')} className="rounded-2xl border border-slate-300 bg-white px-6 py-3.5 text-sm font-semibold text-slate-800 transition hover:border-blue-300 hover:text-blue-700">
+            로그인으로 이동
+          </button>
+        </div>
+      </div>
+    </SectionShell>
+  )
 
   function JeongsiPage() {
     return (
@@ -1546,15 +1529,14 @@ function AppShell() {
       </header>
 
       <main className="px-4 py-8 md:px-8 md:py-10">
-        <SupabaseWarning />
         <Routes>
           <Route path="/" element={<HomePage />} />
           <Route path="/about/chairman" element={<ChairmanPage />} />
           <Route path="/about/organization" element={<OrganizationPage />} />
           <Route path="/about/symbol" element={<SymbolPage />} />
           <Route path="/about/location" element={<LocationPage />} />
-          <Route path="/login" element={<LoginPage />} />
-          <Route path="/signup" element={<SignupPage />} />
+          <Route path="/login" element={loginPageElement} />
+          <Route path="/signup" element={signupPageElement} />
           <Route path="/jeongsi-info" element={<JeongsiPage />} />
           <Route path="/jeongsi-info/may-full-service" element={<MayFullServicePage />} />
           <Route path="/service/study-with-jeongsi" element={<StudyWithJeongsiPage />} />
