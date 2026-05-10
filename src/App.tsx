@@ -853,7 +853,7 @@ function AppShell() {
     <SectionShell
       eyebrow="AUTH"
       title="로그인"
-      description="이제 브라우저 임시 저장이 아니라 실제 Supabase 인증으로 로그인하는 구조야. 로그인은 이메일과 비밀번호로 진행해."
+      description="청고정총 홈페이지에 오신 것을 환영합니다!"
     >
       <div className="mx-auto max-w-xl rounded-[1.8rem] border border-slate-200 bg-slate-50 p-6 md:p-8">
         <div className="space-y-5">
@@ -907,8 +907,8 @@ function AppShell() {
   const signupPageElement = (
     <SectionShell
       eyebrow="JOIN"
-      title="청고정총에 오신 것을 환영합니다"
-      description="이 페이지는 실제 Supabase 회원가입으로 연결되어 있어. 로그인용 값은 이메일과 비밀번호고, 아이디는 사이트 표시용 username으로 저장돼."
+      title="회원가입"
+      description="청고정총 홈페이지에 오신 것을 환영합니다!"
     >
       <div className="rounded-[1.8rem] border border-slate-200 bg-slate-50 p-6 md:p-8">
         <div className="grid gap-5 md:grid-cols-2">
