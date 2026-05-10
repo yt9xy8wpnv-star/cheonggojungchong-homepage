@@ -104,10 +104,27 @@ function normalizeSubjectSeconds(value: unknown): SubjectSecondsMap {
 }
 
 function formatStudyDuration(totalSeconds: number) {
-  const hours = Math.floor(totalSeconds / 3600)
-  const minutes = Math.floor((totalSeconds % 3600) / 60)
-  const seconds = totalSeconds % 60
+  const safeSeconds = Number.isFinite(totalSeconds) && totalSeconds > 0 ? Math.floor(totalSeconds) : 0
+  const hours = Math.floor(safeSeconds / 3600)
+  const minutes = Math.floor((safeSeconds % 3600) / 60)
+  const seconds = safeSeconds % 60
   return [hours, minutes, seconds].map((value) => String(value).padStart(2, '0')).join(':')
+}
+
+function getDisplayStudySeconds(row: Pick<StudyTimerRow, 'current_seconds' | 'subject_seconds' | 'is_running' | 'updated_at'>) {
+  const currentSeconds = Number(row.current_seconds ?? 0)
+  const normalizedCurrentSeconds = Number.isFinite(currentSeconds) && currentSeconds > 0 ? Math.floor(currentSeconds) : 0
+  const subjectSeconds = normalizeSubjectSeconds(row.subject_seconds)
+  const subjectSum = Object.values(subjectSeconds).reduce((sum, value) => sum + value, 0)
+  const baseSeconds = Math.max(normalizedCurrentSeconds, subjectSum)
+
+  if (!row.is_running || !row.updated_at) return baseSeconds
+
+  const updatedAt = new Date(row.updated_at).getTime()
+  if (Number.isNaN(updatedAt)) return baseSeconds
+
+  const elapsedSeconds = Math.max(Math.floor((Date.now() - updatedAt) / 1000), 0)
+  return baseSeconds + elapsedSeconds
 }
 
 const cutlineRows = [
@@ -794,12 +811,55 @@ function AppShell() {
   }, [isLoggedIn])
 
   useEffect(() => {
-    setSelectedLeaderboardUserId((prev) => {
-      if (studyLeaderboard.length === 0) return null
-      if (prev && studyLeaderboard.some((row) => row.user_id === prev)) return prev
-      return studyLeaderboard[0]?.user_id ?? null
+    if (!currentUserId) return
+
+    setStudyLeaderboard((prev) => {
+      const currentRow: StudyTimerRow = {
+        user_id: currentUserId,
+        username: currentUsername || currentUserEmail.split('@')[0] || null,
+        name: currentName || null,
+        current_seconds: studySeconds,
+        is_running: studyRunning,
+        current_subject: currentStudySubject,
+        subject_seconds: subjectSeconds,
+        updated_at: new Date().toISOString(),
+      }
+
+      const hasExistingRow = prev.some((row) => row.user_id === currentUserId)
+      if (hasExistingRow) {
+        return prev.map((row) => (row.user_id === currentUserId ? { ...row, ...currentRow } : row))
+      }
+
+      return [currentRow, ...prev]
     })
+  }, [currentStudySubject, currentName, currentUserEmail, currentUserId, currentUsername, studyRunning, studySeconds, subjectSeconds])
+
+  const displayStudyLeaderboard = useMemo(() => {
+    return [...studyLeaderboard]
+      .map((row) => ({
+        ...row,
+        username: typeof row.username === 'string' ? row.username.trim() : row.username,
+        name: typeof row.name === 'string' ? row.name.trim() : row.name,
+        current_seconds: getDisplayStudySeconds(row),
+        subject_seconds: normalizeSubjectSeconds(row.subject_seconds),
+      }))
+      .sort((a, b) => {
+        const secondGap = Number(b.current_seconds ?? 0) - Number(a.current_seconds ?? 0)
+        if (secondGap !== 0) return secondGap
+
+        const updatedAtA = a.updated_at ? new Date(a.updated_at).getTime() : 0
+        const updatedAtB = b.updated_at ? new Date(b.updated_at).getTime() : 0
+        return updatedAtB - updatedAtA
+      })
   }, [studyLeaderboard])
+
+  useEffect(() => {
+    setSelectedLeaderboardUserId((prev) => {
+      if (displayStudyLeaderboard.length === 0) return null
+      if (prev && displayStudyLeaderboard.some((row) => row.user_id === prev)) return prev
+      return displayStudyLeaderboard[0]?.user_id ?? null
+    })
+  }, [displayStudyLeaderboard])
 
   function formatJoinedDate(value: string) {
     if (!value) return '-'
@@ -1883,34 +1943,17 @@ function AppShell() {
 
   function StudyWithJeongsiPage() {
     const maxSubjectSeconds = Math.max(...Object.values(subjectSeconds), 1)
-    const selectedUser = studyLeaderboard.find((row) => row.user_id === selectedLeaderboardUserId) ?? null
+    const selectedUser = displayStudyLeaderboard.find((row) => row.user_id === selectedLeaderboardUserId) ?? null
     const selectedUserSubjectSeconds = normalizeSubjectSeconds(selectedUser?.subject_seconds)
+    const selectedUserMaxSubjectSeconds = Math.max(...Object.values(selectedUserSubjectSeconds), 1)
 
-    async function handleStartStudyTimer() {
+    async function handleToggleStudyTimer() {
       if (!isLoggedIn || !currentUserId) {
         setStudySyncMessage('로그인 후 이용할 수 있어.')
         return
       }
 
-      const nextRunning = true
-      setStudyRunning(nextRunning)
-      try {
-        await persistStudyTimerState({
-          currentSeconds: studySeconds,
-          isRunning: nextRunning,
-          currentSubject: currentStudySubject,
-          subjectTotals: subjectSeconds,
-        })
-        await fetchStudyLeaderboard()
-        setStudySyncMessage('')
-      } catch (error) {
-        const message = error instanceof Error ? error.message : '알 수 없는 오류가 발생했습니다.'
-        setStudySyncMessage(`타이머 상태를 동기화하지 못했습니다: ${message}`)
-      }
-    }
-
-    async function handlePauseStudyTimer() {
-      const nextRunning = false
+      const nextRunning = !studyRunning
       setStudyRunning(nextRunning)
       try {
         await persistStudyTimerState({
@@ -1976,8 +2019,12 @@ function AppShell() {
                 <span className={`rounded-full px-3 py-1 ${studyRunning ? 'bg-emerald-500/20 text-emerald-200' : 'bg-white/10 text-slate-300'}`}>{studyRunning ? '공부 중' : '일시정지'}</span>
               </div>
               <div className="mt-6 flex flex-wrap gap-3">
-                <button onClick={handleStartStudyTimer} className="rounded-2xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white hover:bg-blue-500">시작</button>
-                <button onClick={handlePauseStudyTimer} className="rounded-2xl border border-white/15 px-5 py-3 text-sm font-semibold text-white hover:bg-white/10">일시정지</button>
+                <button
+                  onClick={handleToggleStudyTimer}
+                  className={`rounded-2xl px-5 py-3 text-sm font-semibold text-white transition ${studyRunning ? 'border border-white/15 bg-white/10 hover:bg-white/15' : 'bg-blue-600 hover:bg-blue-500'}`}
+                >
+                  {studyRunning ? '일시정지' : '시작'}
+                </button>
                 <button onClick={handleResetStudyTimer} className="rounded-2xl border border-red-300/30 px-5 py-3 text-sm font-semibold text-red-100 hover:bg-red-400/10">초기화</button>
               </div>
               {studySyncMessage && <p className="mt-4 text-sm text-amber-200">{studySyncMessage}</p>}
@@ -2000,23 +2047,32 @@ function AppShell() {
                 })}
               </div>
 
-              <div className="mt-8 space-y-4">
+              <div className="mt-8">
                 <div className="text-sm font-semibold tracking-[0.16em] text-slate-500">과목별 공부 시간</div>
-                {studySubjectOptions.map((subject) => {
-                  const seconds = subjectSeconds[subject] ?? 0
-                  const width = `${Math.max((seconds / maxSubjectSeconds) * 100, seconds > 0 ? 8 : 0)}%`
-                  return (
-                    <div key={subject} className="space-y-2">
-                      <div className="flex items-center justify-between text-sm font-semibold text-slate-700">
-                        <span>{subject}</span>
-                        <span>{formatStudyDuration(seconds)}</span>
+                <div className="mt-5 grid grid-cols-3 gap-3 sm:grid-cols-6">
+                  {studySubjectOptions.map((subject) => {
+                    const seconds = subjectSeconds[subject] ?? 0
+                    const height = Math.max((seconds / maxSubjectSeconds) * 100, seconds > 0 ? 14 : 6)
+                    const active = subject === currentStudySubject
+
+                    return (
+                      <div key={subject} className="rounded-[1.25rem] border border-slate-200 bg-slate-50 p-3">
+                        <div className="flex h-40 items-end justify-center">
+                          <div className="flex h-full w-full items-end justify-center rounded-[1rem] bg-white px-2 py-2">
+                            <div
+                              className={`w-full rounded-t-2xl transition-all ${active ? 'bg-gradient-to-t from-blue-700 via-blue-600 to-sky-400 shadow-lg shadow-blue-200/80' : 'bg-gradient-to-t from-slate-500 via-slate-400 to-slate-300'}`}
+                              style={{ height: `${height}%` }}
+                            />
+                          </div>
+                        </div>
+                        <div className="mt-3 text-center">
+                          <div className={`text-sm font-bold ${active ? 'text-blue-700' : 'text-slate-700'}`}>{subject}</div>
+                          <div className="mt-1 text-xs font-semibold text-slate-500">{formatStudyDuration(seconds)}</div>
+                        </div>
                       </div>
-                      <div className="h-3 overflow-hidden rounded-full bg-slate-100">
-                        <div className={`h-full rounded-full ${subject === currentStudySubject ? 'bg-blue-700' : 'bg-slate-400'}`} style={{ width }} />
-                      </div>
-                    </div>
-                  )
-                })}
+                    )
+                  })}
+                </div>
               </div>
             </div>
           </div>
@@ -2032,10 +2088,10 @@ function AppShell() {
               </div>
 
               <div className="mt-5 space-y-3">
-                {studyLeaderboard.length === 0 ? (
+                {displayStudyLeaderboard.length === 0 ? (
                   <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-6 text-center text-sm text-slate-500">아직 표시할 타이머가 없어.</div>
                 ) : (
-                  studyLeaderboard.map((row, index) => {
+                  displayStudyLeaderboard.map((row, index) => {
                     const displayId = (row.username || '').trim() ? String(row.username).trim() : 'unknown'
                     const rank = index + 1
                     const isTop = index === 0
@@ -2065,21 +2121,23 @@ function AppShell() {
               {selectedUser ? (
                 <div className="mt-4 space-y-4">
                   <div>
-                    <div className="text-2xl font-black tracking-tight text-slate-900">{selectedUser.username || 'unknown'}</div>
+                    <div className="text-2xl font-black tracking-tight text-slate-900">{selectedUser.username ? (selectedUser.username.includes('@') ? selectedUser.username.split('@')[0] : selectedUser.username) : 'unknown'}</div>
                     <div className="mt-1 text-sm text-slate-500">총 공부 시간 · {formatStudyDuration(Number(selectedUser.current_seconds ?? 0))}</div>
                   </div>
-                  <div className="space-y-3">
+                  <div className="grid grid-cols-3 gap-3 sm:grid-cols-6">
                     {studySubjectOptions.map((subject) => {
                       const seconds = selectedUserSubjectSeconds[subject] ?? 0
-                      const maxSelected = Math.max(...Object.values(selectedUserSubjectSeconds), 1)
+                      const height = Math.max((seconds / selectedUserMaxSubjectSeconds) * 100, seconds > 0 ? 14 : 6)
                       return (
-                        <div key={subject} className="space-y-2">
-                          <div className="flex items-center justify-between text-sm font-semibold text-slate-700">
-                            <span>{subject}</span>
-                            <span>{formatStudyDuration(seconds)}</span>
+                        <div key={subject} className="rounded-[1.25rem] border border-slate-200 bg-slate-50 p-3">
+                          <div className="flex h-32 items-end justify-center">
+                            <div className="flex h-full w-full items-end justify-center rounded-[1rem] bg-white px-2 py-2">
+                              <div className="w-full rounded-t-2xl bg-gradient-to-t from-blue-700 via-blue-600 to-sky-400" style={{ height: `${height}%` }} />
+                            </div>
                           </div>
-                          <div className="h-3 overflow-hidden rounded-full bg-slate-100">
-                            <div className="h-full rounded-full bg-blue-700" style={{ width: `${Math.max((seconds / maxSelected) * 100, seconds > 0 ? 8 : 0)}%` }} />
+                          <div className="mt-3 text-center">
+                            <div className="text-sm font-bold text-slate-700">{subject}</div>
+                            <div className="mt-1 text-xs font-semibold text-slate-500">{formatStudyDuration(seconds)}</div>
                           </div>
                         </div>
                       )
