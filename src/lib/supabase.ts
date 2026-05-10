@@ -1,6 +1,14 @@
 import { createClient } from '@supabase/supabase-js'
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
-const supabaseKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY
+const viteEnv =
+  typeof import.meta !== 'undefined' &&
+  import.meta &&
+  typeof import.meta.env === 'object' &&
+  import.meta.env !== null
+    ? (import.meta.env as Record<string, string | undefined>)
+    : undefined
 
-export const supabase = createClient(supabaseUrl, supabaseKey)
+const supabaseUrl = viteEnv?.VITE_SUPABASE_URL ?? ''
+const supabaseKey = viteEnv?.VITE_SUPABASE_PUBLISHABLE_KEY ?? ''
+export const supabaseEnabled = Boolean(supabaseUrl && supabaseKey)
+export const supabase = supabaseEnabled ? createClient(supabaseUrl, supabaseKey) : null

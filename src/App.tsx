@@ -5,6 +5,10 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 type ProfileRow = {
   username: string
   name: string
+  grade: number | null
+  class_no: number | null
+  student_no: number | null
+  created_at: string | null
   is_admin: boolean
   is_approved: boolean
 }
@@ -257,6 +261,19 @@ function AppShell() {
   const [currentUserEmail, setCurrentUserEmail] = useState('')
   const [currentUsername, setCurrentUsername] = useState('')
   const [currentName, setCurrentName] = useState('')
+  const [currentGrade, setCurrentGrade] = useState<number | null>(null)
+  const [currentClassNo, setCurrentClassNo] = useState<number | null>(null)
+  const [currentStudentNo, setCurrentStudentNo] = useState<number | null>(null)
+  const [currentJoinedAt, setCurrentJoinedAt] = useState('')
+  const [currentSubjectSelections, setCurrentSubjectSelections] = useState<SignupSubjectSelections>(initialSignupSubjectSelections)
+  const [profileEditUsername, setProfileEditUsername] = useState('')
+  const [profileEditPassword, setProfileEditPassword] = useState('')
+  const [profileEditPasswordConfirm, setProfileEditPasswordConfirm] = useState('')
+  const [profileEditSubjects, setProfileEditSubjects] = useState<SignupSubjectSelections>(initialSignupSubjectSelections)
+  const [profileEditMessage, setProfileEditMessage] = useState('')
+  const [profileSaving, setProfileSaving] = useState(false)
+  const [showProfilePassword, setShowProfilePassword] = useState(false)
+  const [showProfilePasswordConfirm, setShowProfilePasswordConfirm] = useState(false)
   const [isAdmin, setIsAdmin] = useState(false)
   const [isApproved, setIsApproved] = useState(false)
 
@@ -290,26 +307,51 @@ function AppShell() {
   const [scoreForm, setScoreForm] = useState<ScoreForm>(initialScoreForm)
   const [scoreMessage, setScoreMessage] = useState('')
 
-  async function loadProfile(userId: string, email: string) {
+  async function loadProfile(userId: string, email: string, userMeta?: Record<string, unknown>, joinedAt?: string) {
     if (!supabase) {
       setCurrentUserEmail(email)
-      setCurrentUsername(email)
+      setCurrentUsername(email.split('@')[0] || email)
       setCurrentName('')
+      setCurrentGrade(null)
+      setCurrentClassNo(null)
+      setCurrentStudentNo(null)
+      setCurrentJoinedAt(joinedAt ?? '')
+      setCurrentSubjectSelections(initialSignupSubjectSelections)
+      setProfileEditUsername(email.split('@')[0] || email)
+      setProfileEditSubjects(initialSignupSubjectSelections)
       setIsAdmin(false)
       setIsApproved(false)
       return
     }
 
+    const subjectSelections: SignupSubjectSelections = {
+      korean: String(userMeta?.korean_subject ?? initialSignupSubjectSelections.korean),
+      math: String(userMeta?.math_subject ?? initialSignupSubjectSelections.math),
+      english: String(userMeta?.english_choice ?? initialSignupSubjectSelections.english),
+      inquiry1: String(userMeta?.inquiry1_subject ?? initialSignupSubjectSelections.inquiry1),
+      inquiry2: String(userMeta?.inquiry2_subject ?? initialSignupSubjectSelections.inquiry2),
+      secondForeign: String(userMeta?.second_foreign_subject ?? initialSignupSubjectSelections.secondForeign),
+    }
+
     const { data, error } = await supabase
       .from('profiles')
-      .select('username, name, is_admin, is_approved')
+      .select('username, name, grade, class_no, student_no, created_at, is_admin, is_approved')
       .eq('id', userId)
       .maybeSingle<ProfileRow>()
 
     if (error || !data) {
+      const fallbackUsername = String(userMeta?.username ?? email.split('@')[0] ?? email)
+      const fallbackName = String(userMeta?.name ?? '')
       setCurrentUserEmail(email)
-      setCurrentUsername(email)
-      setCurrentName('')
+      setCurrentUsername(fallbackUsername)
+      setCurrentName(fallbackName)
+      setCurrentGrade(typeof userMeta?.grade === 'number' ? userMeta.grade : Number(userMeta?.grade ?? 0) || null)
+      setCurrentClassNo(typeof userMeta?.class_no === 'number' ? userMeta.class_no : Number(userMeta?.class_no ?? 0) || null)
+      setCurrentStudentNo(typeof userMeta?.student_no === 'number' ? userMeta.student_no : Number(userMeta?.student_no ?? 0) || null)
+      setCurrentJoinedAt(joinedAt ?? '')
+      setCurrentSubjectSelections(subjectSelections)
+      setProfileEditUsername(fallbackUsername)
+      setProfileEditSubjects(subjectSelections)
       setIsAdmin(false)
       setIsApproved(false)
       return
@@ -318,6 +360,13 @@ function AppShell() {
     setCurrentUserEmail(email)
     setCurrentUsername(data.username)
     setCurrentName(data.name)
+    setCurrentGrade(data.grade ?? null)
+    setCurrentClassNo(data.class_no ?? null)
+    setCurrentStudentNo(data.student_no ?? null)
+    setCurrentJoinedAt(data.created_at ?? joinedAt ?? '')
+    setCurrentSubjectSelections(subjectSelections)
+    setProfileEditUsername(data.username)
+    setProfileEditSubjects(subjectSelections)
     setIsAdmin(data.is_admin)
     setIsApproved(data.is_approved)
   }
@@ -339,13 +388,20 @@ function AppShell() {
       if (session?.user) {
         setCurrentUserId(session.user.id)
         setIsLoggedIn(true)
-        await loadProfile(session.user.id, session.user.email ?? '')
+        await loadProfile(session.user.id, session.user.email ?? '', session.user.user_metadata ?? {}, session.user.created_at ?? '')
       } else {
         setCurrentUserId('')
         setIsLoggedIn(false)
         setCurrentUserEmail('')
         setCurrentUsername('')
         setCurrentName('')
+        setCurrentGrade(null)
+        setCurrentClassNo(null)
+        setCurrentStudentNo(null)
+        setCurrentJoinedAt('')
+        setCurrentSubjectSelections(initialSignupSubjectSelections)
+        setProfileEditUsername('')
+        setProfileEditSubjects(initialSignupSubjectSelections)
         setIsAdmin(false)
         setIsApproved(false)
       }
@@ -369,13 +425,20 @@ function AppShell() {
       if (session?.user) {
         setCurrentUserId(session.user.id)
         setIsLoggedIn(true)
-        await loadProfile(session.user.id, session.user.email ?? '')
+        await loadProfile(session.user.id, session.user.email ?? '', session.user.user_metadata ?? {}, session.user.created_at ?? '')
       } else {
         setCurrentUserId('')
         setIsLoggedIn(false)
         setCurrentUserEmail('')
         setCurrentUsername('')
         setCurrentName('')
+        setCurrentGrade(null)
+        setCurrentClassNo(null)
+        setCurrentStudentNo(null)
+        setCurrentJoinedAt('')
+        setCurrentSubjectSelections(initialSignupSubjectSelections)
+        setProfileEditUsername('')
+        setProfileEditSubjects(initialSignupSubjectSelections)
         setIsAdmin(false)
         setIsApproved(false)
       }
@@ -419,6 +482,8 @@ function AppShell() {
       setSignupMessage('Supabase 환경변수가 설정되지 않았습니다. .env.local 또는 Vercel 환경변수를 확인해주세요.')
       return
     }
+
+    const client = supabase
     if (!signupEmail.trim()) {
       setSignupMessage('이메일을 입력해주세요.')
       return
@@ -452,7 +517,7 @@ function AppShell() {
       return
     }
 
-    const { error } = await supabase.auth.signUp({
+    const { error } = await client.auth.signUp({
       email: signupEmail.trim(),
       password: signupPassword,
       options: {
@@ -491,13 +556,15 @@ function AppShell() {
   async function ensureProfileExists() {
     if (!supabase) return true
 
+    const client = supabase
+
     const {
       data: { user },
-    } = await supabase.auth.getUser()
+    } = await client.auth.getUser()
 
     if (!user) return false
 
-    const { data: existing } = await supabase
+    const { data: existing } = await client
       .from('profiles')
       .select('id')
       .eq('id', user.id)
@@ -507,7 +574,7 @@ function AppShell() {
 
     const meta = user.user_metadata ?? {}
 
-    const { error } = await supabase.from('profiles').insert({
+    const { error } = await client.from('profiles').insert({
       id: user.id,
       email: user.email ?? loginEmail.trim(),
       username: String(meta.username ?? currentUsername ?? 'user'),
@@ -515,8 +582,6 @@ function AppShell() {
       grade: meta.grade ? Number(meta.grade) : null,
       class_no: meta.class_no ? Number(meta.class_no) : null,
       student_no: meta.student_no ? Number(meta.student_no) : null,
-      is_admin: false,
-      is_approved: false,
     })
 
     if (error) {
@@ -535,7 +600,9 @@ function AppShell() {
       return
     }
 
-    const { error } = await supabase.auth.signInWithPassword({
+    const client = supabase
+
+    const { error } = await client.auth.signInWithPassword({
       email: loginEmail.trim(),
       password: loginPassword,
     })
@@ -558,6 +625,16 @@ function AppShell() {
     setCurrentUserEmail('')
     setCurrentUsername('')
     setCurrentName('')
+    setCurrentGrade(null)
+    setCurrentClassNo(null)
+    setCurrentStudentNo(null)
+    setCurrentJoinedAt('')
+    setCurrentSubjectSelections(initialSignupSubjectSelections)
+    setProfileEditUsername('')
+    setProfileEditPassword('')
+    setProfileEditPasswordConfirm('')
+    setProfileEditSubjects(initialSignupSubjectSelections)
+    setProfileEditMessage('')
     setIsAdmin(false)
     setIsApproved(false)
     setStudyRunning(false)
@@ -566,7 +643,8 @@ function AppShell() {
       navigate('/')
       return
     }
-    await supabase.auth.signOut()
+    const client = supabase
+    await client.auth.signOut()
     navigate('/')
   }
 
@@ -579,7 +657,9 @@ function AppShell() {
   }) {
     if (!supabase || !currentUserId) return
 
-    const { error } = await supabase.from('study_timer_status').upsert(
+    const client = supabase
+
+    const { error } = await client.from('study_timer_status').upsert(
       {
         user_id: currentUserId,
         username: currentUsername || currentUserEmail.split('@')[0] || 'user',
@@ -602,7 +682,9 @@ function AppShell() {
   async function fetchStudyLeaderboard() {
     if (!supabase || !isLoggedIn) return
 
-    const { data, error } = await supabase
+    const client = supabase
+
+    const { data, error } = await client
       .from('study_timer_status')
       .select('user_id, username, name, current_seconds, is_running, current_subject, subject_seconds, updated_at')
       .order('current_seconds', { ascending: false })
@@ -614,16 +696,7 @@ function AppShell() {
       throw new Error(message)
     }
 
-    const rows = ((data ?? []) as StudyTimerRow[]).map((row) => ({
-      ...row,
-      username: row.username && !row.username.includes('@') ? row.username : row.username ? row.username.split('@')[0] : null,
-    }))
-
-    setStudyLeaderboard(rows)
-    setSelectedLeaderboardUserId((prev) => {
-      if (prev && rows.some((row) => row.user_id === prev)) return prev
-      return rows[0]?.user_id ?? null
-    })
+    setStudyLeaderboard((data ?? []) as StudyTimerRow[])
   }
 
   useEffect(() => {
@@ -719,6 +792,91 @@ function AppShell() {
       window.clearInterval(timer)
     }
   }, [isLoggedIn])
+
+  useEffect(() => {
+    setSelectedLeaderboardUserId((prev) => {
+      if (studyLeaderboard.length === 0) return null
+      if (prev && studyLeaderboard.some((row) => row.user_id === prev)) return prev
+      return studyLeaderboard[0]?.user_id ?? null
+    })
+  }, [studyLeaderboard])
+
+  function formatJoinedDate(value: string) {
+    if (!value) return '-'
+    const date = new Date(value)
+    if (Number.isNaN(date.getTime())) return value
+    return date.toLocaleDateString('ko-KR')
+  }
+
+  async function handleProfileSave() {
+    setProfileEditMessage('')
+
+    if (!isLoggedIn || !currentUserId || !supabase) {
+      setProfileEditMessage('로그인 후 이용할 수 있어.')
+      return
+    }
+
+    const trimmedUsername = profileEditUsername.trim()
+    if (!trimmedUsername) {
+      setProfileEditMessage('아이디를 입력해줘.')
+      return
+    }
+    if (profileEditPassword && profileEditPassword.length < 8) {
+      setProfileEditMessage('비밀번호는 8자 이상이어야 해.')
+      return
+    }
+    if (profileEditPassword !== profileEditPasswordConfirm) {
+      setProfileEditMessage('비밀번호 확인이 일치하지 않아.')
+      return
+    }
+    if (
+      profileEditSubjects.inquiry1 !== '응시하지 않음' &&
+      profileEditSubjects.inquiry2 !== '응시하지 않음' &&
+      profileEditSubjects.inquiry1 === profileEditSubjects.inquiry2
+    ) {
+      setProfileEditMessage('탐구1과 탐구2는 서로 달라야 해.')
+      return
+    }
+
+    setProfileSaving(true)
+    try {
+      const { error: profileError } = await supabase
+        .from('profiles')
+        .update({ username: trimmedUsername })
+        .eq('id', currentUserId)
+
+      if (profileError) throw profileError
+
+      const payload: Record<string, unknown> = {
+        username: trimmedUsername,
+        korean_subject: profileEditSubjects.korean,
+        math_subject: profileEditSubjects.math,
+        english_choice: profileEditSubjects.english,
+        inquiry1_subject: profileEditSubjects.inquiry1,
+        inquiry2_subject: profileEditSubjects.inquiry2,
+        second_foreign_subject: profileEditSubjects.secondForeign,
+      }
+      if (profileEditPassword) payload.password = profileEditPassword
+
+      const { error: authError } = await client.auth.updateUser({
+        ...(profileEditPassword ? { password: profileEditPassword } : {}),
+        data: payload,
+      })
+      if (authError) throw authError
+
+      setCurrentUsername(trimmedUsername)
+      setCurrentSubjectSelections(profileEditSubjects)
+      setProfileEditPassword('')
+      setProfileEditPasswordConfirm('')
+      setProfileEditMessage('프로필 정보를 수정했어.')
+    } catch (error) {
+      const message = typeof error === 'object' && error !== null && 'message' in error ? String((error as { message?: unknown }).message ?? '알 수 없는 오류') : '알 수 없는 오류'
+      setProfileEditMessage(`프로필 수정 실패: ${message}`)
+    } finally {
+      setProfileSaving(false)
+    }
+  }
+
 
   const predictedTotal = useMemo(
     () =>
@@ -835,9 +993,7 @@ function AppShell() {
     )
   }
 
-  function SupabaseWarning() {
-    return null
-  }
+
 
   function HomePage() {
     return (
@@ -1478,6 +1634,117 @@ function AppShell() {
     )
   }
 
+  function MyPage() {
+    if (!isLoggedIn) {
+      return <Navigate to="/login" replace />
+    }
+
+    const accountRows = [
+      ['아이디', currentUsername || '-'],
+      ['현재 등급', isAdmin ? '관리자' : isApproved ? '승인 회원' : '승인 대기'],
+      ['학번 정보', [currentGrade, currentClassNo, currentStudentNo].every((value) => value !== null) ? `${currentGrade}학년 ${currentClassNo}반 ${currentStudentNo}번` : '-'],
+      ['가입일', formatJoinedDate(currentJoinedAt)],
+    ] as const
+
+    const subjectRows = [
+      ['국어', currentSubjectSelections.korean],
+      ['수학', currentSubjectSelections.math],
+      ['영어', currentSubjectSelections.english],
+      ['탐구1', currentSubjectSelections.inquiry1],
+      ['탐구2', currentSubjectSelections.inquiry2],
+      ['제2외국어', currentSubjectSelections.secondForeign],
+    ] as const
+
+    return (
+      <SectionShell eyebrow="PROFILE" title={currentUsername || currentUserEmail || '내 정보'} description="계정 정보와 선택과목을 확인하고 수정할 수 있는 페이지야." wide>
+        <div className="grid gap-6 lg:grid-cols-[0.95fr_1.05fr]">
+          <div className="space-y-6 rounded-[1.75rem] border border-slate-200 bg-white p-6 shadow-sm">
+            <div>
+              <div className="text-sm font-semibold tracking-[0.16em] text-slate-500">계정 정보</div>
+              <div className="mt-4 space-y-3">
+                {accountRows.map(([label, value]) => (
+                  <div key={label} className="flex items-center justify-between gap-4 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+                    <span className="text-sm font-semibold text-slate-500">{label}</span>
+                    <span className="text-sm font-bold text-slate-900">{value}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <div className="text-sm font-semibold tracking-[0.16em] text-slate-500">선택과목 설정</div>
+              <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                {subjectRows.map(([label, value]) => (
+                  <div key={label} className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+                    <div className="text-xs font-semibold tracking-[0.14em] text-slate-500">{label}</div>
+                    <div className="mt-2 text-sm font-bold text-slate-900">{value}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <button onClick={handleLogout} className="rounded-2xl border border-slate-300 px-5 py-3 text-sm font-semibold text-slate-800 transition hover:border-red-300 hover:text-red-700">
+              로그아웃
+            </button>
+          </div>
+
+          <div className="space-y-6 rounded-[1.75rem] border border-slate-200 bg-white p-6 shadow-sm">
+            <div className="text-sm font-semibold tracking-[0.16em] text-slate-500">정보 수정</div>
+            <div className="space-y-4">
+              <div>
+                <label className="mb-2 block text-sm font-semibold text-slate-700">아이디</label>
+                <input value={profileEditUsername} onChange={(e) => setProfileEditUsername(e.target.value)} className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none transition focus:border-blue-400 focus:bg-white" />
+              </div>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div>
+                  <label className="mb-2 block text-sm font-semibold text-slate-700">새 비밀번호</label>
+                  <div className="flex items-center gap-2 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 focus-within:border-blue-400 focus-within:bg-white">
+                    <input type={showProfilePassword ? 'text' : 'password'} value={profileEditPassword} onChange={(e) => setProfileEditPassword(e.target.value)} className="w-full bg-transparent text-sm outline-none" placeholder="변경할 때만 입력" />
+                    <button type="button" onClick={() => setShowProfilePassword((prev) => !prev)} className="text-xs font-semibold text-slate-500">{showProfilePassword ? '숨기기' : '보기'}</button>
+                  </div>
+                </div>
+                <div>
+                  <label className="mb-2 block text-sm font-semibold text-slate-700">비밀번호 확인</label>
+                  <div className="flex items-center gap-2 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 focus-within:border-blue-400 focus-within:bg-white">
+                    <input type={showProfilePasswordConfirm ? 'text' : 'password'} value={profileEditPasswordConfirm} onChange={(e) => setProfileEditPasswordConfirm(e.target.value)} className="w-full bg-transparent text-sm outline-none" placeholder="한 번 더 입력" />
+                    <button type="button" onClick={() => setShowProfilePasswordConfirm((prev) => !prev)} className="text-xs font-semibold text-slate-500">{showProfilePasswordConfirm ? '숨기기' : '보기'}</button>
+                  </div>
+                </div>
+              </div>
+              <div className="grid gap-4 sm:grid-cols-2">
+                {([
+                  ['국어', 'korean', koreanOptions],
+                  ['수학', 'math', mathOptions],
+                  ['영어', 'english', ['응시함', '응시하지 않음']],
+                  ['탐구1', 'inquiry1', ['응시하지 않음', ...inquiryOptions]],
+                  ['탐구2', 'inquiry2', ['응시하지 않음', ...inquiryOptions]],
+                  ['제2외국어', 'secondForeign', ['응시하지 않음', '일본어Ⅰ', '중국어Ⅰ', '한문Ⅰ', '프랑스어Ⅰ', '독일어Ⅰ', '스페인어Ⅰ', '러시아어Ⅰ', '아랍어Ⅰ', '베트남어Ⅰ']],
+                ] as Array<[string, keyof SignupSubjectSelections, string[]]>).map(([label, field, options]) => (
+                  <div key={String(field)}>
+                    <label className="mb-2 block text-sm font-semibold text-slate-700">{String(label)}</label>
+                    <select
+                      value={profileEditSubjects[field as keyof SignupSubjectSelections]}
+                      onChange={(e) => setProfileEditSubjects((prev) => ({ ...prev, [field]: e.target.value }))}
+                      className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none transition focus:border-blue-400 focus:bg-white"
+                    >
+                      {(options as string[]).map((option) => (
+                        <option key={option} value={option}>{option}</option>
+                      ))}
+                    </select>
+                  </div>
+                ))}
+              </div>
+            </div>
+            {profileEditMessage && <div className={`text-sm font-medium ${profileEditMessage.includes('수정했어') ? 'text-blue-700' : 'text-red-500'}`}>{profileEditMessage}</div>}
+            <button onClick={handleProfileSave} disabled={profileSaving} className="rounded-2xl bg-blue-700 px-6 py-3 text-sm font-semibold text-white shadow-lg shadow-blue-700/20 transition hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-60">
+              {profileSaving ? '저장 중...' : '프로필 수정 저장'}
+            </button>
+          </div>
+        </div>
+      </SectionShell>
+    )
+  }
+
   function NoticePage() {
     return (
       <SectionShell
@@ -1734,10 +2001,7 @@ function AppShell() {
               </div>
 
               <div className="mt-8 space-y-4">
-                <div>
-                  <div className="text-sm font-semibold tracking-[0.16em] text-slate-500">내 과목별 공부 시간</div>
-                  <div className="mt-1 text-xs text-slate-400">타이머가 돌아가는 동안 현재 선택한 과목에 시간이 누적돼.</div>
-                </div>
+                <div className="text-sm font-semibold tracking-[0.16em] text-slate-500">과목별 공부 시간</div>
                 {studySubjectOptions.map((subject) => {
                   const seconds = subjectSeconds[subject] ?? 0
                   const width = `${Math.max((seconds / maxSubjectSeconds) * 100, seconds > 0 ? 8 : 0)}%`
@@ -1772,20 +2036,19 @@ function AppShell() {
                   <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-6 text-center text-sm text-slate-500">아직 표시할 타이머가 없어.</div>
                 ) : (
                   studyLeaderboard.map((row, index) => {
-                    const displayId = row.username || '아이디 미설정'
+                    const displayId = (row.username || '').trim() ? String(row.username).trim() : 'unknown'
                     const rank = index + 1
                     const isTop = index === 0
-                    const isSelected = row.user_id === selectedLeaderboardUserId
                     return (
                       <button
                         key={row.user_id}
                         onClick={() => setSelectedLeaderboardUserId(row.user_id)}
-                        className={`w-full rounded-[1.4rem] border px-4 py-4 text-left transition ${isTop ? 'border-amber-300 bg-amber-50 shadow-lg shadow-amber-100' : 'border-slate-200 bg-white hover:border-blue-200 hover:bg-blue-50/40'} ${isSelected ? 'ring-2 ring-blue-500 ring-offset-2' : ''}`}
+                        className={`w-full rounded-[1.4rem] border px-4 py-4 text-left transition ${row.user_id === selectedLeaderboardUserId ? 'ring-2 ring-blue-300' : ''} ${isTop ? 'border-amber-300 bg-amber-50 shadow-lg shadow-amber-100' : 'border-slate-200 bg-white hover:border-blue-200 hover:bg-blue-50/40'}`}
                       >
                         <div className="flex items-start justify-between gap-4">
                           <div>
                             <div className={`inline-flex rounded-full px-2.5 py-1 text-xs font-black ${isTop ? 'bg-amber-400 text-amber-950' : 'bg-slate-100 text-slate-600'}`}>#{rank}</div>
-                            <div className={`mt-3 text-lg font-black tracking-tight ${isTop ? 'text-amber-950' : 'text-slate-900'}`}>{displayId}</div>
+                            <div className={`mt-3 text-lg font-black tracking-tight ${isTop ? 'text-amber-950' : 'text-slate-900'}`}>{displayId.includes('@') ? displayId.split('@')[0] : displayId}</div>
                             <div className="mt-1 text-sm text-slate-500">{row.current_subject || '과목 미설정'} · {row.is_running ? '공부 중' : '대기 중'}</div>
                           </div>
                           <div className={`text-right text-2xl font-black tracking-tight ${isTop ? 'text-amber-700' : 'text-blue-700'}`}>{formatStudyDuration(Number(row.current_seconds ?? 0))}</div>
@@ -1798,18 +2061,17 @@ function AppShell() {
             </div>
 
             <div className="rounded-[1.5rem] border border-slate-200 bg-white p-5 shadow-sm">
-              <div className="text-sm font-semibold tracking-[0.16em] text-slate-500">선택한 사용자 과목별 공부 시간</div>
+              <div className="text-sm font-semibold tracking-[0.16em] text-slate-500">상세 보기</div>
               {selectedUser ? (
                 <div className="mt-4 space-y-4">
-                  <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                    <div className="text-2xl font-black tracking-tight text-slate-900">{selectedUser.username || '아이디 미설정'}</div>
+                  <div>
+                    <div className="text-2xl font-black tracking-tight text-slate-900">{selectedUser.username || 'unknown'}</div>
                     <div className="mt-1 text-sm text-slate-500">총 공부 시간 · {formatStudyDuration(Number(selectedUser.current_seconds ?? 0))}</div>
                   </div>
                   <div className="space-y-3">
                     {studySubjectOptions.map((subject) => {
                       const seconds = selectedUserSubjectSeconds[subject] ?? 0
                       const maxSelected = Math.max(...Object.values(selectedUserSubjectSeconds), 1)
-                      const width = `${Math.max((seconds / maxSelected) * 100, seconds > 0 ? 8 : 0)}%`
                       return (
                         <div key={subject} className="space-y-2">
                           <div className="flex items-center justify-between text-sm font-semibold text-slate-700">
@@ -1817,7 +2079,7 @@ function AppShell() {
                             <span>{formatStudyDuration(seconds)}</span>
                           </div>
                           <div className="h-3 overflow-hidden rounded-full bg-slate-100">
-                            <div className="h-full rounded-full bg-blue-700" style={{ width }} />
+                            <div className="h-full rounded-full bg-blue-700" style={{ width: `${Math.max((seconds / maxSelected) * 100, seconds > 0 ? 8 : 0)}%` }} />
                           </div>
                         </div>
                       )
@@ -1825,7 +2087,7 @@ function AppShell() {
                   </div>
                 </div>
               ) : (
-                <div className="mt-4 rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-6 text-sm text-slate-500">리더보드 데이터가 들어오면 자동으로 첫 번째 사용자의 과목별 공부 시간이 여기에 표시돼.</div>
+                <div className="mt-4 rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-6 text-sm text-slate-500">리더보드에서 사람을 누르면 과목별 공부 시간을 볼 수 있어.</div>
               )}
             </div>
           </div>
@@ -1898,7 +2160,7 @@ function AppShell() {
 
           <div className="hidden items-center gap-3 md:flex">
             {isLoggedIn ? (
-              <button onClick={handleLogout} className="inline-flex items-center gap-3 rounded-2xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-800 shadow-sm transition hover:border-blue-300 hover:text-blue-700">
+              <button onClick={() => navigate('/mypage')} className="inline-flex items-center gap-3 rounded-2xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-800 shadow-sm transition hover:border-blue-300 hover:text-blue-700">
                 <span className="flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 bg-slate-50 text-sm">👤</span>
                 <span>{topRightLabel}</span>
               </button>
@@ -1942,9 +2204,14 @@ function AppShell() {
                 ))}
               </div>
               {isLoggedIn ? (
-                <button onClick={handleLogout} className="mt-2 rounded-2xl border border-slate-300 px-4 py-3 text-left text-sm font-semibold text-slate-800">
-                  {topRightLabel} · 로그아웃
-                </button>
+                <div className="mt-2 flex flex-col gap-2">
+                  <button onClick={() => navigate('/mypage')} className="rounded-2xl border border-slate-300 px-4 py-3 text-left text-sm font-semibold text-slate-800">
+                    {topRightLabel}
+                  </button>
+                  <button onClick={handleLogout} className="rounded-2xl border border-slate-300 px-4 py-3 text-left text-sm font-semibold text-slate-800">
+                    로그아웃
+                  </button>
+                </div>
               ) : (
                 <button onClick={() => navigate('/login')} className="mt-2 rounded-2xl bg-blue-700 px-4 py-3 text-left text-sm font-semibold text-white">
                   로그인
@@ -1970,6 +2237,7 @@ function AppShell() {
           <Route path="/service/fund" element={<FundPage />} />
           <Route path="/service/goods" element={<GoodsPage />} />
           <Route path="/service/photo-booth" element={<PhotoBoothPage />} />
+          <Route path="/mypage" element={<MyPage />} />
           <Route path="/notice" element={<NoticePage />} />
           <Route path="/notice/community" element={<CommunityPage />} />
           <Route path="/notice/press" element={<PressPage />} />
