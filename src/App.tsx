@@ -339,12 +339,7 @@ function AppShell() {
 
   useEffect(() => {
     let mounted = true
-    const forceReadyTimer = window.setTimeout(() => {
-      if (!mounted) return
-      console.warn('auth bootstrap fallback triggered')
-      resetLoggedOutState()
-      setSessionReady(true)
-    }, 5000)
+    let authResolved = false
 
     function resetLoggedOutState() {
       setCurrentUserId('')
@@ -357,6 +352,19 @@ function AppShell() {
       setCurrentStudentNo(null)
       setIsAdmin(false)
       setIsApproved(false)
+    }
+
+    const forceReadyTimer = window.setTimeout(() => {
+      if (!mounted || authResolved) return
+      console.warn('auth bootstrap fallback triggered')
+      resetLoggedOutState()
+      setSessionReady(true)
+    }, 5000)
+
+    function finishAuthBootstrap() {
+      authResolved = true
+      window.clearTimeout(forceReadyTimer)
+      if (mounted) setSessionReady(true)
     }
 
     async function applySession(session: Session | null) {
@@ -375,7 +383,7 @@ function AppShell() {
           resetLoggedOutState()
         }
       } finally {
-        if (mounted) setSessionReady(true)
+        finishAuthBootstrap()
       }
     }
 
@@ -383,7 +391,7 @@ function AppShell() {
       try {
         const sb = supabase
         if (!sb) {
-          if (mounted) setSessionReady(true)
+          finishAuthBootstrap()
           return
         }
 
@@ -393,12 +401,12 @@ function AppShell() {
         console.error('initAuth error:', error)
         if (mounted) {
           resetLoggedOutState()
-          setSessionReady(true)
         }
+        finishAuthBootstrap()
       }
     }
 
-    initAuth()
+    void initAuth()
 
     const sb = supabase
     if (!sb) {
