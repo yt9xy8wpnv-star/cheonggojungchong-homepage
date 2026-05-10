@@ -497,49 +497,34 @@ function AppShell() {
 
     if (!user) return false
 
-    try {
-      const { data: existing, error: existingError } = await supabase
-        .from('profiles')
-        .select('id')
-        .eq('id', user.id)
-        .maybeSingle()
+    const { data: existing } = await supabase
+      .from('profiles')
+      .select('id')
+      .eq('id', user.id)
+      .maybeSingle()
 
-      if (existingError) {
-        setLoginMessage('프로필 확인 실패: ' + existingError.message)
-        return false
-      }
+    if (existing) return true
 
-      if (existing) return true
+    const meta = user.user_metadata ?? {}
 
-      const meta = user.user_metadata ?? {}
-      const generatedUsername = String(meta.username ?? currentUsername ?? (user.email?.split('@')[0] ?? 'user'))
-      const generatedName = String(meta.name ?? currentName ?? generatedUsername)
+    const { error } = await supabase.from('profiles').insert({
+      id: user.id,
+      email: user.email ?? loginEmail.trim(),
+      username: String(meta.username ?? currentUsername ?? 'user'),
+      name: String(meta.name ?? currentName ?? '이름없음'),
+      grade: meta.grade ? Number(meta.grade) : null,
+      class_no: meta.class_no ? Number(meta.class_no) : null,
+      student_no: meta.student_no ? Number(meta.student_no) : null,
+      is_admin: false,
+      is_approved: false,
+    })
 
-      const { error } = await supabase.from('profiles').insert({
-        id: user.id,
-        email: user.email ?? loginEmail.trim(),
-        username: generatedUsername,
-        name: generatedName,
-        grade: meta.grade ? Number(meta.grade) : null,
-        class_no: meta.class_no ? Number(meta.class_no) : null,
-        student_no: meta.student_no ? Number(meta.student_no) : null,
-      })
-
-      if (error) {
-        if (error.code == '23505') return true
-        setLoginMessage('프로필 생성 실패: ' + error.message)
-        return false
-      }
-
-      return true
-    } catch (error) {
-      const message =
-        typeof error === 'object' && error !== null && 'message' in error
-          ? String((error as { message?: unknown }).message ?? '알 수 없는 오류가 발생했습니다.')
-          : '알 수 없는 오류가 발생했습니다.'
-      setLoginMessage('프로필 생성 실패: ' + message)
+    if (error) {
+      setLoginMessage('프로필 생성 실패: ' + error.message)
       return false
     }
+
+    return true
   }
 
   async function handleSupabaseLogin() {
@@ -629,7 +614,16 @@ function AppShell() {
       throw new Error(message)
     }
 
-    setStudyLeaderboard((data ?? []) as StudyTimerRow[])
+    const rows = ((data ?? []) as StudyTimerRow[]).map((row) => ({
+      ...row,
+      username: row.username && !row.username.includes('@') ? row.username : row.username ? row.username.split('@')[0] : null,
+    }))
+
+    setStudyLeaderboard(rows)
+    setSelectedLeaderboardUserId((prev) => {
+      if (prev && rows.some((row) => row.user_id === prev)) return prev
+      return rows[0]?.user_id ?? null
+    })
   }
 
   useEffect(() => {
@@ -1620,58 +1614,6 @@ function AppShell() {
     )
   }
 
-  function MyPagePage() {
-    if (!isLoggedIn) {
-      return <Navigate to="/login" replace />
-    }
-
-    return (
-      <SectionShell
-        eyebrow="PROFILE"
-        title={currentName || currentUsername || '내 정보'}
-        description="아이디와 계정 상태를 확인하고 여기서 로그아웃할 수 있어."
-      >
-        <div className="grid gap-4 md:grid-cols-2">
-          <div className="rounded-[1.5rem] border border-slate-200 bg-slate-50 p-6">
-            <div className="text-sm font-semibold tracking-[0.18em] text-blue-700">아이디</div>
-            <div className="mt-3 text-2xl font-black tracking-tight text-slate-900">{currentUsername || '-'}</div>
-          </div>
-          <div className="rounded-[1.5rem] border border-slate-200 bg-slate-50 p-6">
-            <div className="text-sm font-semibold tracking-[0.18em] text-blue-700">이메일</div>
-            <div className="mt-3 break-all text-lg font-semibold text-slate-900">{currentUserEmail || '-'}</div>
-          </div>
-          <div className="rounded-[1.5rem] border border-slate-200 bg-slate-50 p-6">
-            <div className="text-sm font-semibold tracking-[0.18em] text-blue-700">이름</div>
-            <div className="mt-3 text-xl font-bold text-slate-900">{currentName || '-'}</div>
-          </div>
-          <div className="rounded-[1.5rem] border border-slate-200 bg-slate-50 p-6">
-            <div className="text-sm font-semibold tracking-[0.18em] text-blue-700">권한 상태</div>
-            <div className="mt-3 text-xl font-bold text-slate-900">{isAdmin ? '관리자' : isApproved ? '승인된 회원' : '승인 대기'}</div>
-          </div>
-        </div>
-
-        <div className="mt-6 flex flex-wrap gap-3">
-          <button
-            type="button"
-            onClick={handleLogout}
-            className="rounded-2xl border border-slate-300 bg-white px-5 py-3 text-sm font-semibold text-slate-800 shadow-sm transition hover:border-red-300 hover:text-red-700"
-          >
-            로그아웃
-          </button>
-          {isAdmin ? (
-            <button
-              type="button"
-              onClick={() => navigate('/admin/approvals')}
-              className="rounded-2xl bg-blue-700 px-5 py-3 text-sm font-semibold text-white shadow-lg shadow-blue-700/20 transition hover:bg-blue-800"
-            >
-              회원 승인 관리
-            </button>
-          ) : null}
-        </div>
-      </SectionShell>
-    )
-  }
-
   function StudyWithJeongsiPage() {
     const maxSubjectSeconds = Math.max(...Object.values(subjectSeconds), 1)
     const selectedUser = studyLeaderboard.find((row) => row.user_id === selectedLeaderboardUserId) ?? null
@@ -1792,7 +1734,10 @@ function AppShell() {
               </div>
 
               <div className="mt-8 space-y-4">
-                <div className="text-sm font-semibold tracking-[0.16em] text-slate-500">과목별 공부 시간</div>
+                <div>
+                  <div className="text-sm font-semibold tracking-[0.16em] text-slate-500">내 과목별 공부 시간</div>
+                  <div className="mt-1 text-xs text-slate-400">타이머가 돌아가는 동안 현재 선택한 과목에 시간이 누적돼.</div>
+                </div>
                 {studySubjectOptions.map((subject) => {
                   const seconds = subjectSeconds[subject] ?? 0
                   const width = `${Math.max((seconds / maxSubjectSeconds) * 100, seconds > 0 ? 8 : 0)}%`
@@ -1827,14 +1772,15 @@ function AppShell() {
                   <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-6 text-center text-sm text-slate-500">아직 표시할 타이머가 없어.</div>
                 ) : (
                   studyLeaderboard.map((row, index) => {
-                    const displayId = row.username || 'unknown'
+                    const displayId = row.username || '아이디 미설정'
                     const rank = index + 1
                     const isTop = index === 0
+                    const isSelected = row.user_id === selectedLeaderboardUserId
                     return (
                       <button
                         key={row.user_id}
                         onClick={() => setSelectedLeaderboardUserId(row.user_id)}
-                        className={`w-full rounded-[1.4rem] border px-4 py-4 text-left transition ${isTop ? 'border-amber-300 bg-amber-50 shadow-lg shadow-amber-100' : 'border-slate-200 bg-white hover:border-blue-200 hover:bg-blue-50/40'}`}
+                        className={`w-full rounded-[1.4rem] border px-4 py-4 text-left transition ${isTop ? 'border-amber-300 bg-amber-50 shadow-lg shadow-amber-100' : 'border-slate-200 bg-white hover:border-blue-200 hover:bg-blue-50/40'} ${isSelected ? 'ring-2 ring-blue-500 ring-offset-2' : ''}`}
                       >
                         <div className="flex items-start justify-between gap-4">
                           <div>
@@ -1852,17 +1798,18 @@ function AppShell() {
             </div>
 
             <div className="rounded-[1.5rem] border border-slate-200 bg-white p-5 shadow-sm">
-              <div className="text-sm font-semibold tracking-[0.16em] text-slate-500">상세 보기</div>
+              <div className="text-sm font-semibold tracking-[0.16em] text-slate-500">선택한 사용자 과목별 공부 시간</div>
               {selectedUser ? (
                 <div className="mt-4 space-y-4">
-                  <div>
-                    <div className="text-2xl font-black tracking-tight text-slate-900">{selectedUser.username || 'unknown'}</div>
+                  <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                    <div className="text-2xl font-black tracking-tight text-slate-900">{selectedUser.username || '아이디 미설정'}</div>
                     <div className="mt-1 text-sm text-slate-500">총 공부 시간 · {formatStudyDuration(Number(selectedUser.current_seconds ?? 0))}</div>
                   </div>
                   <div className="space-y-3">
                     {studySubjectOptions.map((subject) => {
                       const seconds = selectedUserSubjectSeconds[subject] ?? 0
                       const maxSelected = Math.max(...Object.values(selectedUserSubjectSeconds), 1)
+                      const width = `${Math.max((seconds / maxSelected) * 100, seconds > 0 ? 8 : 0)}%`
                       return (
                         <div key={subject} className="space-y-2">
                           <div className="flex items-center justify-between text-sm font-semibold text-slate-700">
@@ -1870,7 +1817,7 @@ function AppShell() {
                             <span>{formatStudyDuration(seconds)}</span>
                           </div>
                           <div className="h-3 overflow-hidden rounded-full bg-slate-100">
-                            <div className="h-full rounded-full bg-blue-700" style={{ width: `${Math.max((seconds / maxSelected) * 100, seconds > 0 ? 8 : 0)}%` }} />
+                            <div className="h-full rounded-full bg-blue-700" style={{ width }} />
                           </div>
                         </div>
                       )
@@ -1878,7 +1825,7 @@ function AppShell() {
                   </div>
                 </div>
               ) : (
-                <div className="mt-4 rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-6 text-sm text-slate-500">리더보드에서 사람을 누르면 과목별 공부 시간을 볼 수 있어.</div>
+                <div className="mt-4 rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-6 text-sm text-slate-500">리더보드 데이터가 들어오면 자동으로 첫 번째 사용자의 과목별 공부 시간이 여기에 표시돼.</div>
               )}
             </div>
           </div>
@@ -1951,7 +1898,7 @@ function AppShell() {
 
           <div className="hidden items-center gap-3 md:flex">
             {isLoggedIn ? (
-              <button onClick={() => navigate('/mypage')} className="inline-flex items-center gap-3 rounded-2xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-800 shadow-sm transition hover:border-blue-300 hover:text-blue-700">
+              <button onClick={handleLogout} className="inline-flex items-center gap-3 rounded-2xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-800 shadow-sm transition hover:border-blue-300 hover:text-blue-700">
                 <span className="flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 bg-slate-50 text-sm">👤</span>
                 <span>{topRightLabel}</span>
               </button>
@@ -1995,14 +1942,9 @@ function AppShell() {
                 ))}
               </div>
               {isLoggedIn ? (
-                <>
-                  <button onClick={() => navigate('/mypage')} className="mt-2 rounded-2xl border border-slate-300 px-4 py-3 text-left text-sm font-semibold text-slate-800">
-                    {topRightLabel}
-                  </button>
-                  <button onClick={handleLogout} className="rounded-2xl border border-slate-300 px-4 py-3 text-left text-sm font-semibold text-slate-800">
-                    로그아웃
-                  </button>
-                </>
+                <button onClick={handleLogout} className="mt-2 rounded-2xl border border-slate-300 px-4 py-3 text-left text-sm font-semibold text-slate-800">
+                  {topRightLabel} · 로그아웃
+                </button>
               ) : (
                 <button onClick={() => navigate('/login')} className="mt-2 rounded-2xl bg-blue-700 px-4 py-3 text-left text-sm font-semibold text-white">
                   로그인
@@ -2028,8 +1970,6 @@ function AppShell() {
           <Route path="/service/fund" element={<FundPage />} />
           <Route path="/service/goods" element={<GoodsPage />} />
           <Route path="/service/photo-booth" element={<PhotoBoothPage />} />
-          <Route path="/mypage" element={<MyPagePage />} />
-          <Route path="/admin/approvals" element={<SectionShell eyebrow="ADMIN" title="회원 승인 관리" description="현재 파일에는 승인 관리 UI가 포함되어 있지 않아. 기존 승인 페이지 로직을 이어서 붙이면 돼."><div className="rounded-[1.5rem] border border-slate-200 bg-slate-50 p-6 text-slate-600">승인 관리 페이지 준비 중</div></SectionShell>} />
           <Route path="/notice" element={<NoticePage />} />
           <Route path="/notice/community" element={<CommunityPage />} />
           <Route path="/notice/press" element={<PressPage />} />
