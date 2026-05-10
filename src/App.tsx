@@ -294,13 +294,38 @@ function AppShell() {
       return
     }
 
-    const { data, error } = await supabase
-      .from('profiles')
-      .select('username, name, grade, class_no, student_no, is_admin, is_approved')
-      .eq('id', userId)
-      .single<ProfileRow>()
+    try {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('username, name, grade, class_no, student_no, is_admin, is_approved')
+        .eq('id', userId)
+        .maybeSingle<ProfileRow>()
 
-    if (error || !data) {
+      if (error || !data) {
+        setCurrentUserId(userId)
+        setCurrentUserEmail(email)
+        setCurrentUsername(email)
+        setCurrentName('')
+        setCurrentGrade(null)
+        setCurrentClassNo(null)
+        setCurrentStudentNo(null)
+        setIsAdmin(false)
+        setIsApproved(false)
+        return
+      }
+
+      setCurrentUserId(userId)
+      setCurrentUserEmail(email)
+      setCurrentUsername(data.username)
+      setCurrentName(data.name)
+      setCurrentGrade(data.grade)
+      setCurrentClassNo(data.class_no)
+      setCurrentStudentNo(data.student_no)
+      setIsAdmin(data.is_admin)
+      setIsApproved(data.is_approved)
+    } catch (error) {
+      console.error('loadProfile error:', error)
+      setCurrentUserId(userId)
       setCurrentUserEmail(email)
       setCurrentUsername(email)
       setCurrentName('')
@@ -309,18 +334,7 @@ function AppShell() {
       setCurrentStudentNo(null)
       setIsAdmin(false)
       setIsApproved(false)
-      return
     }
-
-    setCurrentUserId(userId)
-    setCurrentUserEmail(email)
-    setCurrentUsername(data.username)
-    setCurrentName(data.name)
-    setCurrentGrade(data.grade)
-    setCurrentClassNo(data.class_no)
-    setCurrentStudentNo(data.student_no)
-    setIsAdmin(data.is_admin)
-    setIsApproved(data.is_approved)
   }
 
   useEffect(() => {
@@ -545,27 +559,35 @@ function AppShell() {
 
     if (!user) return false
 
-    const { data: existing } = await supabase
+    const { data: existing, error: existingError } = await supabase
       .from('profiles')
       .select('id')
       .eq('id', user.id)
       .maybeSingle()
 
+    if (existingError) {
+      setLoginMessage('프로필 확인 실패: ' + existingError.message)
+      return false
+    }
+
     if (existing) return true
 
     const meta = user.user_metadata ?? {}
 
-    const { error } = await supabase.from('profiles').insert({
-      id: user.id,
-      email: user.email ?? loginEmail.trim(),
-      username: String(meta.username ?? currentUsername ?? 'user'),
-      name: String(meta.name ?? currentName ?? '이름없음'),
-      grade: meta.grade ? Number(meta.grade) : null,
-      class_no: meta.class_no ? Number(meta.class_no) : null,
-      student_no: meta.student_no ? Number(meta.student_no) : null,
-      is_admin: false,
-      is_approved: false,
-    })
+    const { error } = await supabase.from('profiles').upsert(
+      {
+        id: user.id,
+        email: user.email ?? loginEmail.trim(),
+        username: String(meta.username ?? currentUsername ?? 'user'),
+        name: String(meta.name ?? currentName ?? '이름없음'),
+        grade: meta.grade ? Number(meta.grade) : null,
+        class_no: meta.class_no ? Number(meta.class_no) : null,
+        student_no: meta.student_no ? Number(meta.student_no) : null,
+        is_admin: false,
+        is_approved: false,
+      },
+      { onConflict: 'id' },
+    )
 
     if (error) {
       setLoginMessage('프로필 생성 실패: ' + error.message)
