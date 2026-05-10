@@ -508,7 +508,7 @@ function AppShell() {
       }
     }
 
-    setSignupMessage('회원가입 신청이 완료되었습니다. 이제 관리자 승인 목록에서 바로 확인할 수 있습니다.')
+    setSignupMessage('회원가입 신청이 완료되었습니다. 홈 화면으로 이동합니다.')
     setSignupEmail('')
     setSignupPassword('')
     setSignupPasswordConfirm('')
@@ -516,7 +516,7 @@ function AppShell() {
     setSignupName('')
     setSignupStudentNo('')
     setSignupSubjectSelections(initialSignupSubjectSelections)
-    navigate('/login')
+    navigate('/')
   }
 
   async function ensureProfileExists() {
@@ -603,12 +603,9 @@ function AppShell() {
   }
 
   async function handleLogout() {
-    if (!supabase) {
-      navigate('/')
-      return
-    }
-
-    await supabase.auth.signOut()
+    setLoginMessage('')
+    setSignupMessage('')
+    setApprovalMessage('')
     setIsLoggedIn(false)
     setCurrentUserEmail('')
     setCurrentUsername('')
@@ -618,7 +615,22 @@ function AppShell() {
     setCurrentStudentNo(null)
     setIsAdmin(false)
     setIsApproved(false)
-    navigate('/')
+    setApprovalProfiles([])
+    setMobileMenuOpen(false)
+    setOpenDropdown(null)
+
+    try {
+      if (supabase) {
+        const { error } = await supabase.auth.signOut()
+        if (error) {
+          console.error('logout error:', error)
+        }
+      }
+    } catch (error) {
+      console.error('logout unexpected error:', error)
+    } finally {
+      navigate('/', { replace: true })
+    }
   }
 
   async function fetchPendingApprovals() {
@@ -631,13 +643,18 @@ function AppShell() {
     setApprovalLoading(true)
     setApprovalMessage('')
 
-    const { data, error } = await supabase
+    const {
+      data: { user },
+    } = await supabase.auth.getUser()
+
+    const query = supabase
       .from('profiles')
       .select('id, email, username, name, grade, class_no, student_no, is_admin, is_approved')
       .eq('is_approved', false)
-      .order('grade', { ascending: true })
-      .order('class_no', { ascending: true })
-      .order('student_no', { ascending: true })
+
+    const { data, error } = user?.id
+      ? await query.neq('id', user.id).order('grade', { ascending: true }).order('class_no', { ascending: true }).order('student_no', { ascending: true })
+      : await query.order('grade', { ascending: true }).order('class_no', { ascending: true }).order('student_no', { ascending: true })
 
     if (error) {
       setApprovalProfiles([])
