@@ -24,6 +24,15 @@ type ApprovalProfileRow = {
   is_approved: boolean | null
 }
 
+type StudyTimerRow = {
+  user_id: string
+  username: string | null
+  name: string | null
+  current_seconds: number | null
+  is_running: boolean | null
+  updated_at: string | null
+}
+
 type SignupSubjectSelections = {
   korean: string
   math: string
@@ -182,6 +191,14 @@ function formatRoleLabel(isAdmin: boolean, isApproved: boolean) {
   return '승인 대기 회원'
 }
 
+function formatStudyDuration(totalSeconds: number) {
+  const safeSeconds = Math.max(0, Math.floor(totalSeconds))
+  const hours = Math.floor(safeSeconds / 3600)
+  const minutes = Math.floor((safeSeconds % 3600) / 60)
+  const seconds = safeSeconds % 60
+  return [hours, minutes, seconds].map((value) => String(value).padStart(2, '0')).join(':')
+}
+
 const initialSignupSubjectSelections: SignupSubjectSelections = {
   korean: '화법과 작문',
   math: '미적분',
@@ -281,6 +298,15 @@ function AppShell() {
   const [approvalMessage, setApprovalMessage] = useState('')
   const [approvalInitialized, setApprovalInitialized] = useState(false)
   const approvalsFetchedRef = useRef(false)
+
+  const [studySeconds, setStudySeconds] = useState(0)
+  const [studyRunning, setStudyRunning] = useState(false)
+  const [studyStatusRows, setStudyStatusRows] = useState<StudyTimerRow[]>([])
+  const [studyStatusLoading, setStudyStatusLoading] = useState(false)
+  const [studyStatusReady, setStudyStatusReady] = useState(false)
+  const [studyStatusMessage, setStudyStatusMessage] = useState('')
+  const [studyTableEnabled, setStudyTableEnabled] = useState(true)
+  const studyHydratedRef = useRef(false)
 
   function withTimeout<T>(promise: Promise<T>, ms: number, label: string) {
     return Promise.race([
@@ -401,6 +427,11 @@ function AppShell() {
       setProfileEditPasswordConfirm('')
       setProfileEditSubjects(initialSignupSubjectSelections)
       setProfileEditMessage('')
+      setStudyRunning(false)
+      setStudySeconds(0)
+      setStudyStatusRows([])
+      setStudyStatusReady(false)
+      setStudyStatusMessage('')
     }
 
     const forceReadyTimer = window.setTimeout(() => {
@@ -494,6 +525,57 @@ function AppShell() {
       }
     }
   }, [])
+
+
+  useEffect(() => {
+    if (!studyRunning) return
+
+    const interval = window.setInterval(() => {
+      setStudySeconds((prev) => prev + 1)
+    }, 1000)
+
+    return () => {
+      window.clearInterval(interval)
+    }
+  }, [studyRunning])
+
+  useEffect(() => {
+    if (!isLoggedIn || !currentUserId) {
+      studyHydratedRef.current = false
+      setStudyRunning(false)
+      setStudySeconds(0)
+      setStudyStatusRows([])
+      setStudyStatusReady(false)
+      return
+    }
+
+    if (!sessionReady) return
+
+    studyHydratedRef.current = false
+    void fetchStudyStatusRows()
+
+    const poll = window.setInterval(() => {
+      void fetchStudyStatusRows()
+    }, 5000)
+
+    return () => {
+      window.clearInterval(poll)
+    }
+  }, [isLoggedIn, currentUserId, sessionReady])
+
+  useEffect(() => {
+    if (!studyRunning || !isLoggedIn || !currentUserId || !studyTableEnabled) return
+    if (studySeconds === 0 || studySeconds % 5 !== 0) return
+
+    void syncStudyTimerStatus(studySeconds, true)
+  }, [studySeconds, studyRunning, isLoggedIn, currentUserId, studyTableEnabled])
+
+  useEffect(() => {
+    if (!isLoggedIn || !currentUserId || !studyTableEnabled) return
+    if (studyRunning) return
+
+    void syncStudyTimerStatus(studySeconds, false)
+  }, [studyRunning, isLoggedIn, currentUserId, studySeconds, studyTableEnabled])
 
   function updateSignupSubject(field: keyof SignupSubjectSelections, value: string) {
     signupScrollYRef.current = window.scrollY
@@ -802,7 +884,123 @@ function AppShell() {
     }
   }
 
+
+  async function syncStudyTimerStatus(nextSeconds: number, nextRunning: boolean) {
+    if (!supabase || !currentUserId) return false
+
+    const { error } = await supabase.from('study_timer_status').upsert(
+      {
+        user_id: currentUserId,
+        username: currentUsername || currentUserEmail || 'user',
+        name: currentName || null,
+        current_seconds: nextSeconds,
+        is_running: nextRunning,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: 'user_id' },
+    )
+
+    if (error) {
+      console.error('syncStudyTimerStatus error:', error)
+      if (error.message.toLowerCase().includes('study_timer_status')) {
+        setStudyTableEnabled(false)
+        setStudyStatusMessage('study_timer_status 테이블이 아직 준비되지 않았습니다. SQL로 테이블을 먼저 만들어줘야 해.')
+      } else {
+        setStudyStatusMessage('타이머 상태 동기화에 실패했습니다: ' + error.message)
+      }
+      return false
+    }
+
+    setStudyTableEnabled(true)
+    return true
+  }
+
+  async function fetchStudyStatusRows() {
+    if (!supabase) {
+      setStudyTableEnabled(false)
+      setStudyStatusReady(true)
+      return
+    }
+
+    setStudyStatusLoading(true)
+    try {
+      const { data, error } = await supabase
+        .from('study_timer_status')
+        .select('user_id, username, name, current_seconds, is_running, updated_at')
+        .order('is_running', { ascending: false })
+        .order('current_seconds', { ascending: false })
+
+      if (error) {
+        throw error
+      }
+
+      const rows = (data ?? []) as StudyTimerRow[]
+      setStudyStatusRows(rows)
+      setStudyStatusMessage('')
+      setStudyTableEnabled(true)
+      setStudyStatusReady(true)
+
+      if (!studyHydratedRef.current && currentUserId) {
+        const myRow = rows.find((row) => row.user_id === currentUserId)
+        if (myRow) {
+          const syncedSeconds = Math.max(0, Number(myRow.current_seconds ?? 0))
+          const lastUpdated = myRow.updated_at ? new Date(myRow.updated_at).getTime() : Date.now()
+          const driftSeconds = myRow.is_running ? Math.max(0, Math.floor((Date.now() - lastUpdated) / 1000)) : 0
+          setStudySeconds(syncedSeconds + driftSeconds)
+          setStudyRunning(Boolean(myRow.is_running))
+        }
+        studyHydratedRef.current = true
+      }
+    } catch (error) {
+      console.error('fetchStudyStatusRows error:', error)
+      const message = error instanceof Error ? error.message : '알 수 없는 오류'
+      if (message.toLowerCase().includes('study_timer_status')) {
+        setStudyTableEnabled(false)
+        setStudyStatusMessage('study_timer_status 테이블이 아직 준비되지 않았습니다. SQL로 테이블을 먼저 만들어줘야 해.')
+      } else {
+        setStudyStatusMessage('다른 사람 타이머를 불러오지 못했습니다: ' + message)
+      }
+      setStudyStatusReady(true)
+    } finally {
+      setStudyStatusLoading(false)
+    }
+  }
+
+  async function handleStartStudyTimer() {
+    if (!isLoggedIn) {
+      navigate('/login')
+      return
+    }
+
+    setStudyStatusMessage('')
+    setStudyRunning(true)
+    await syncStudyTimerStatus(studySeconds, true)
+    await fetchStudyStatusRows()
+  }
+
+  async function handlePauseStudyTimer() {
+    setStudyRunning(false)
+    await syncStudyTimerStatus(studySeconds, false)
+    await fetchStudyStatusRows()
+  }
+
+  async function handleResetStudyTimer() {
+    setStudyRunning(false)
+    setStudySeconds(0)
+    await syncStudyTimerStatus(0, false)
+    await fetchStudyStatusRows()
+  }
+
   async function handleLogout() {
+    if (supabase && currentUserId) {
+      try {
+        await syncStudyTimerStatus(studySeconds, false)
+      } catch (error) {
+        console.error('logout study sync error:', error)
+      }
+    }
+
+    setStudyRunning(false)
     setMobileMenuOpen(false)
     setOpenDropdown(null)
     setSessionReady(true)
@@ -1961,9 +2159,126 @@ function AppShell() {
   }
 
   function StudyWithJeongsiPage() {
+    const myStudyRank = studyStatusRows.findIndex((row) => row.user_id === currentUserId) + 1
+
     return (
-      <SectionShell eyebrow="SERVICE" title="study with 정시" description="학습 루틴과 집중 흐름을 관리하는 서비스 페이지야.">
-        <div className="rounded-[1.5rem] border border-slate-200 bg-slate-50 p-6 text-slate-600">study with 정시 기능을 여기에 연결할 수 있어.</div>
+      <SectionShell
+        eyebrow="SERVICE"
+        title="study with 정시"
+        description="열품타처럼 집중 시간을 함께 쌓아 보는 테스트 버전이야. 타이머를 시작하면 내 공부 시간이 올라가고, 아래에서 다른 사람의 타이머도 같이 볼 수 있어."
+        wide
+      >
+        <div className="grid gap-6 xl:grid-cols-[1.15fr,0.85fr]">
+          <div className="rounded-[1.8rem] border border-slate-200 bg-white p-6 shadow-sm md:p-8">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <div className="text-sm font-semibold tracking-[0.18em] text-blue-700">MY TIMER</div>
+                <h2 className="mt-2 text-3xl font-black tracking-tight text-slate-900 md:text-4xl">{formatStudyDuration(studySeconds)}</h2>
+                <p className="mt-3 text-sm leading-relaxed text-slate-500">
+                  {isLoggedIn
+                    ? `${currentUsername || currentName || currentUserEmail} 계정으로 공부 시간을 기록하고 있어.`
+                    : '로그인해야 내 타이머를 서버에 기록하고 다른 사람에게도 보이게 할 수 있어.'}
+                </p>
+              </div>
+              <div className={`rounded-full px-4 py-2 text-sm font-semibold ${studyRunning ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-600'}`}>
+                {studyRunning ? '공부 중' : '대기 중'}
+              </div>
+            </div>
+
+            <div className="mt-6 grid gap-3 sm:grid-cols-3">
+              <button
+                type="button"
+                onClick={() => void handleStartStudyTimer()}
+                className="rounded-2xl bg-blue-700 px-5 py-4 text-base font-semibold text-white transition hover:bg-blue-800"
+              >
+                타이머 시작
+              </button>
+              <button
+                type="button"
+                onClick={() => void handlePauseStudyTimer()}
+                className="rounded-2xl border border-slate-300 bg-white px-5 py-4 text-base font-semibold text-slate-700 transition hover:border-slate-400 hover:bg-slate-50"
+              >
+                일시정지
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleResetStudyTimer()}
+                className="rounded-2xl border border-slate-300 bg-slate-50 px-5 py-4 text-base font-semibold text-slate-700 transition hover:border-slate-400 hover:bg-slate-100"
+              >
+                초기화
+              </button>
+            </div>
+
+            <div className="mt-6 grid gap-4 sm:grid-cols-3">
+              <div className="rounded-[1.3rem] border border-slate-200 bg-slate-50 p-4">
+                <div className="text-xs font-semibold tracking-[0.16em] text-slate-500">TODAY</div>
+                <div className="mt-2 text-2xl font-black tracking-tight text-slate-900">{formatStudyDuration(studySeconds)}</div>
+                <div className="mt-2 text-sm text-slate-500">현재 기기에 기록 중인 누적 공부 시간</div>
+              </div>
+              <div className="rounded-[1.3rem] border border-slate-200 bg-slate-50 p-4">
+                <div className="text-xs font-semibold tracking-[0.16em] text-slate-500">MY RANK</div>
+                <div className="mt-2 text-2xl font-black tracking-tight text-slate-900">{myStudyRank > 0 ? `${myStudyRank}위` : '-'}</div>
+                <div className="mt-2 text-sm text-slate-500">현재 보이는 스터디 타이머 기준 순위</div>
+              </div>
+              <div className="rounded-[1.3rem] border border-slate-200 bg-slate-50 p-4">
+                <div className="text-xs font-semibold tracking-[0.16em] text-slate-500">LIVE USERS</div>
+                <div className="mt-2 text-2xl font-black tracking-tight text-slate-900">{studyStatusRows.filter((row) => row.is_running).length}명</div>
+                <div className="mt-2 text-sm text-slate-500">지금 study with 정시 타이머를 돌리는 사람 수</div>
+              </div>
+            </div>
+
+            {studyStatusMessage ? <div className="mt-5 rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-700">{studyStatusMessage}</div> : null}
+            {!studyTableEnabled ? (
+              <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-relaxed text-amber-700">
+                테스트하려면 Supabase에 <span className="font-semibold">study_timer_status</span> 테이블을 먼저 만들어야 해.
+              </div>
+            ) : null}
+          </div>
+
+          <div className="rounded-[1.8rem] border border-slate-200 bg-white p-6 shadow-sm md:p-8">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <div className="text-sm font-semibold tracking-[0.18em] text-blue-700">LIVE BOARD</div>
+                <h2 className="mt-2 text-2xl font-black tracking-tight text-slate-900">다른 사람 타이머</h2>
+              </div>
+              <button
+                type="button"
+                onClick={() => void fetchStudyStatusRows()}
+                className="rounded-full border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-slate-400 hover:bg-slate-50"
+              >
+                새로고침
+              </button>
+            </div>
+
+            <div className="mt-5 space-y-3">
+              {!studyStatusReady && studyStatusLoading ? (
+                <div className="rounded-[1.3rem] border border-slate-200 bg-slate-50 px-4 py-5 text-sm text-slate-500">타이머 목록을 불러오는 중이야.</div>
+              ) : studyStatusRows.length === 0 ? (
+                <div className="rounded-[1.3rem] border border-slate-200 bg-slate-50 px-4 py-5 text-sm text-slate-500">아직 표시할 타이머가 없어. 먼저 한 명이 타이머를 시작하면 여기서 바로 볼 수 있어.</div>
+              ) : (
+                studyStatusRows.map((row, index) => {
+                  const displayName = row.name || row.username || '익명 사용자'
+                  const isMe = row.user_id === currentUserId
+                  return (
+                    <div key={row.user_id} className={`rounded-[1.3rem] border px-4 py-4 ${isMe ? 'border-blue-200 bg-blue-50' : 'border-slate-200 bg-slate-50'}`}>
+                      <div className="flex items-center justify-between gap-3">
+                        <div>
+                          <div className="text-xs font-semibold tracking-[0.16em] text-slate-500">#{index + 1}</div>
+                          <div className="mt-1 text-lg font-black tracking-tight text-slate-900">{displayName}{isMe ? ' · 나' : ''}</div>
+                          <div className="mt-1 text-sm text-slate-500">{row.is_running ? '지금 공부 중' : '현재 일시정지'}</div>
+                        </div>
+                        <div className="text-right">
+                          <div className="text-2xl font-black tracking-tight text-slate-900">{formatStudyDuration(Number(row.current_seconds ?? 0))}</div>
+                          <div className="mt-1 text-xs text-slate-500">{row.updated_at ? new Date(row.updated_at).toLocaleTimeString('ko-KR') : '-'}</div>
+                        </div>
+                      </div>
+                    </div>
+                  )
+                })
+              )}
+            </div>
+          </div>
+        </div>
       </SectionShell>
     )
   }
