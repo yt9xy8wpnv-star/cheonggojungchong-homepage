@@ -5,6 +5,9 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 type ProfileRow = {
   username: string
   name: string
+  grade: number | null
+  class_no: number | null
+  student_no: number | null
   is_admin: boolean
   is_approved: boolean
 }
@@ -173,6 +176,12 @@ const noticeMenu = [
 
 const adminMenu = [['회원 승인 관리', '/admin/approvals']] as const
 
+function formatRoleLabel(isAdmin: boolean, isApproved: boolean) {
+  if (isAdmin) return '관리자'
+  if (isApproved) return '승인된 일반 회원'
+  return '승인 대기 회원'
+}
+
 const initialSignupSubjectSelections: SignupSubjectSelections = {
   korean: '화법과 작문',
   math: '미적분',
@@ -230,6 +239,9 @@ function AppShell() {
   const [currentUserEmail, setCurrentUserEmail] = useState('')
   const [currentUsername, setCurrentUsername] = useState('')
   const [currentName, setCurrentName] = useState('')
+  const [currentGrade, setCurrentGrade] = useState<number | null>(null)
+  const [currentClassNo, setCurrentClassNo] = useState<number | null>(null)
+  const [currentStudentNo, setCurrentStudentNo] = useState<number | null>(null)
   const [isAdmin, setIsAdmin] = useState(false)
   const [isApproved, setIsApproved] = useState(false)
 
@@ -263,6 +275,9 @@ function AppShell() {
       setCurrentUserEmail(email)
       setCurrentUsername(email)
       setCurrentName('')
+      setCurrentGrade(null)
+      setCurrentClassNo(null)
+      setCurrentStudentNo(null)
       setIsAdmin(false)
       setIsApproved(false)
       return
@@ -270,7 +285,7 @@ function AppShell() {
 
     const { data, error } = await supabase
       .from('profiles')
-      .select('username, name, is_admin, is_approved')
+      .select('username, name, grade, class_no, student_no, is_admin, is_approved')
       .eq('id', userId)
       .single<ProfileRow>()
 
@@ -278,6 +293,9 @@ function AppShell() {
       setCurrentUserEmail(email)
       setCurrentUsername(email)
       setCurrentName('')
+      setCurrentGrade(null)
+      setCurrentClassNo(null)
+      setCurrentStudentNo(null)
       setIsAdmin(false)
       setIsApproved(false)
       return
@@ -286,6 +304,9 @@ function AppShell() {
     setCurrentUserEmail(email)
     setCurrentUsername(data.username)
     setCurrentName(data.name)
+    setCurrentGrade(data.grade)
+    setCurrentClassNo(data.class_no)
+    setCurrentStudentNo(data.student_no)
     setIsAdmin(data.is_admin)
     setIsApproved(data.is_approved)
   }
@@ -293,30 +314,44 @@ function AppShell() {
   useEffect(() => {
     let mounted = true
 
+    function resetLoggedOutState() {
+      setIsLoggedIn(false)
+      setCurrentUserEmail('')
+      setCurrentUsername('')
+      setCurrentName('')
+      setCurrentGrade(null)
+      setCurrentClassNo(null)
+      setCurrentStudentNo(null)
+      setIsAdmin(false)
+      setIsApproved(false)
+    }
+
     async function initAuth() {
-      if (!supabase) {
+      try {
+        if (!supabase) {
+          if (mounted) setSessionReady(true)
+          return
+        }
+
+        const { data } = await supabase.auth.getSession()
+        const session = data.session
+
+        if (!mounted) return
+
+        if (session?.user) {
+          setIsLoggedIn(true)
+          await loadProfile(session.user.id, session.user.email ?? '')
+        } else {
+          resetLoggedOutState()
+        }
+      } catch (error) {
+        console.error('initAuth error:', error)
+        if (mounted) {
+          resetLoggedOutState()
+        }
+      } finally {
         if (mounted) setSessionReady(true)
-        return
       }
-
-      const { data } = await supabase.auth.getSession()
-      const session = data.session
-
-      if (!mounted) return
-
-      if (session?.user) {
-        setIsLoggedIn(true)
-        await loadProfile(session.user.id, session.user.email ?? '')
-      } else {
-        setIsLoggedIn(false)
-        setCurrentUserEmail('')
-        setCurrentUsername('')
-        setCurrentName('')
-        setIsAdmin(false)
-        setIsApproved(false)
-      }
-
-      setSessionReady(true)
     }
 
     initAuth()
@@ -332,16 +367,20 @@ function AppShell() {
     } = supabase.auth.onAuthStateChange(async (_event, session) => {
       if (!mounted) return
 
-      if (session?.user) {
-        setIsLoggedIn(true)
-        await loadProfile(session.user.id, session.user.email ?? '')
-      } else {
-        setIsLoggedIn(false)
-        setCurrentUserEmail('')
-        setCurrentUsername('')
-        setCurrentName('')
-        setIsAdmin(false)
-        setIsApproved(false)
+      try {
+        if (session?.user) {
+          setIsLoggedIn(true)
+          await loadProfile(session.user.id, session.user.email ?? '')
+        } else {
+          resetLoggedOutState()
+        }
+      } catch (error) {
+        console.error('auth state change error:', error)
+        if (mounted) {
+          resetLoggedOutState()
+        }
+      } finally {
+        if (mounted) setSessionReady(true)
       }
     })
 
@@ -416,16 +455,23 @@ function AppShell() {
       return
     }
 
-    const { error } = await supabase.auth.signUp({
-      email: signupEmail.trim(),
+    const signupEmailValue = signupEmail.trim()
+    const signupUsernameValue = signupUsername.trim()
+    const signupNameValue = signupName.trim()
+    const signupGradeValue = Number(signupGrade)
+    const signupClassNoValue = Number(signupClassNo)
+    const signupStudentNoValue = Number(signupStudentNo)
+
+    const { data, error } = await supabase.auth.signUp({
+      email: signupEmailValue,
       password: signupPassword,
       options: {
         data: {
-          username: signupUsername.trim(),
-          name: signupName.trim(),
-          grade: Number(signupGrade),
-          class_no: Number(signupClassNo),
-          student_no: Number(signupStudentNo),
+          username: signupUsernameValue,
+          name: signupNameValue,
+          grade: signupGradeValue,
+          class_no: signupClassNoValue,
+          student_no: signupStudentNoValue,
           korean_subject: signupSubjectSelections.korean,
           math_subject: signupSubjectSelections.math,
           english_choice: signupSubjectSelections.english,
@@ -441,7 +487,28 @@ function AppShell() {
       return
     }
 
-    setSignupMessage('회원가입 신청이 완료되었습니다. 관리자 승인 후 주요 기능을 사용할 수 있습니다.')
+    const signedUpUser = data.user
+
+    if (signedUpUser) {
+      const { error: profileInsertError } = await supabase.from('profiles').upsert({
+        id: signedUpUser.id,
+        email: signupEmailValue,
+        username: signupUsernameValue,
+        name: signupNameValue,
+        grade: signupGradeValue,
+        class_no: signupClassNoValue,
+        student_no: signupStudentNoValue,
+        is_admin: false,
+        is_approved: false,
+      })
+
+      if (profileInsertError) {
+        setSignupMessage('회원가입은 되었지만 승인 대기 등록에 실패했습니다: ' + profileInsertError.message)
+        return
+      }
+    }
+
+    setSignupMessage('회원가입 신청이 완료되었습니다. 이제 관리자 승인 목록에서 바로 확인할 수 있습니다.')
     setSignupEmail('')
     setSignupPassword('')
     setSignupPasswordConfirm('')
@@ -536,8 +603,21 @@ function AppShell() {
   }
 
   async function handleLogout() {
-    if (!supabase) return
+    if (!supabase) {
+      navigate('/')
+      return
+    }
+
     await supabase.auth.signOut()
+    setIsLoggedIn(false)
+    setCurrentUserEmail('')
+    setCurrentUsername('')
+    setCurrentName('')
+    setCurrentGrade(null)
+    setCurrentClassNo(null)
+    setCurrentStudentNo(null)
+    setIsAdmin(false)
+    setIsApproved(false)
     navigate('/')
   }
 
@@ -1673,7 +1753,92 @@ function AppShell() {
     )
   }
 
+  function MyPage() {
+    if (!isLoggedIn) {
+      return <Navigate to="/login" replace />
+    }
+
+    const roleLabel = formatRoleLabel(isAdmin, isApproved)
+    const classInfo =
+      currentGrade && currentClassNo && currentStudentNo
+        ? `${currentGrade}학년 ${currentClassNo}반 ${currentStudentNo}번`
+        : '학번 정보 없음'
+
+    return (
+      <SectionShell
+        eyebrow="MY PAGE"
+        title="마이페이지"
+        description="현재 로그인한 계정의 기본 정보와 권한 상태를 확인할 수 있는 공간이야."
+      >
+        <div className="grid gap-6 lg:grid-cols-[1.2fr_0.8fr]">
+          <div className="rounded-[1.8rem] border border-slate-200 bg-white p-6 shadow-sm md:p-8">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <div className="text-sm font-semibold tracking-[0.18em] text-blue-700">PROFILE</div>
+                <h2 className="mt-3 text-3xl font-black tracking-tight text-slate-900">{currentName || currentUsername || '사용자'}</h2>
+                <p className="mt-2 text-sm text-slate-500">{currentUserEmail || '이메일 정보 없음'}</p>
+              </div>
+              <div className={`inline-flex rounded-full px-4 py-2 text-sm font-semibold ${isAdmin ? 'bg-amber-100 text-amber-700' : isApproved ? 'bg-blue-100 text-blue-700' : 'bg-slate-100 text-slate-600'}`}>
+                {roleLabel}
+              </div>
+            </div>
+
+            <div className="mt-8 grid gap-4 md:grid-cols-2">
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+                <div className="text-xs font-semibold tracking-[0.16em] text-slate-500">아이디</div>
+                <div className="mt-2 text-lg font-bold text-slate-900">{currentUsername || '-'}</div>
+              </div>
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+                <div className="text-xs font-semibold tracking-[0.16em] text-slate-500">현재 등급</div>
+                <div className="mt-2 text-lg font-bold text-slate-900">{roleLabel}</div>
+              </div>
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+                <div className="text-xs font-semibold tracking-[0.16em] text-slate-500">학번 정보</div>
+                <div className="mt-2 text-lg font-bold text-slate-900">{classInfo}</div>
+              </div>
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+                <div className="text-xs font-semibold tracking-[0.16em] text-slate-500">승인 상태</div>
+                <div className="mt-2 text-lg font-bold text-slate-900">{isApproved ? '승인 완료' : '승인 대기 중'}</div>
+              </div>
+            </div>
+          </div>
+
+          <div className="space-y-5">
+            <div className="rounded-[1.8rem] border border-slate-200 bg-slate-50 p-6">
+              <div className="text-sm font-semibold tracking-[0.18em] text-blue-700">ACCOUNT</div>
+              <p className="mt-3 text-sm leading-relaxed text-slate-600">
+                로그아웃은 여기서 할 수 있어. 승인 전 계정은 주요 기능 접근이 제한될 수 있어.
+              </p>
+              <button
+                onClick={() => void handleLogout()}
+                className="mt-6 w-full rounded-2xl bg-slate-900 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-800"
+              >
+                로그아웃
+              </button>
+            </div>
+
+            {isAdmin && (
+              <div className="rounded-[1.8rem] border border-amber-200 bg-amber-50 p-6">
+                <div className="text-sm font-semibold tracking-[0.18em] text-amber-700">ADMIN</div>
+                <p className="mt-3 text-sm leading-relaxed text-amber-900">
+                  관리자 계정으로 로그인되어 있어. 회원 승인 관리 페이지로 바로 이동할 수 있어.
+                </p>
+                <button
+                  onClick={() => navigate('/admin/approvals')}
+                  className="mt-6 w-full rounded-2xl border border-amber-300 bg-white px-5 py-3 text-sm font-semibold text-amber-800 transition hover:bg-amber-100"
+                >
+                  회원 승인 관리로 이동
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      </SectionShell>
+    )
+  }
+
   const topRightLabel = isLoggedIn ? currentUsername || currentName || currentUserEmail : '로그인'
+  const myPageButtonLabel = isLoggedIn ? `${topRightLabel} · 마이페이지` : '로그인'
 
   if (!sessionReady) {
     return <div className="flex min-h-screen items-center justify-center bg-slate-100 text-slate-600">불러오는 중...</div>
@@ -1698,9 +1863,9 @@ function AppShell() {
 
           <div className="hidden items-center gap-3 md:flex">
             {isLoggedIn ? (
-              <button onClick={handleLogout} className="inline-flex items-center gap-3 rounded-2xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-800 shadow-sm transition hover:border-blue-300 hover:text-blue-700">
+              <button onClick={() => navigate('/mypage')} className="inline-flex items-center gap-3 rounded-2xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-800 shadow-sm transition hover:border-blue-300 hover:text-blue-700">
                 <span className="flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 bg-slate-50 text-sm">👤</span>
-                <span>{topRightLabel}</span>
+                <span>{myPageButtonLabel}</span>
               </button>
             ) : (
               <button onClick={() => navigate('/login')} className="rounded-2xl bg-blue-700 px-5 py-3 text-sm font-semibold text-white shadow-lg shadow-blue-700/20 transition hover:bg-blue-800">
@@ -1752,8 +1917,8 @@ function AppShell() {
                 </>
               )}
               {isLoggedIn ? (
-                <button onClick={handleLogout} className="mt-2 rounded-2xl border border-slate-300 px-4 py-3 text-left text-sm font-semibold text-slate-800">
-                  {topRightLabel} · 로그아웃
+                <button onClick={() => navigate('/mypage')} className="mt-2 rounded-2xl border border-slate-300 px-4 py-3 text-left text-sm font-semibold text-slate-800">
+                  {myPageButtonLabel}
                 </button>
               ) : (
                 <button onClick={() => navigate('/login')} className="mt-2 rounded-2xl bg-blue-700 px-4 py-3 text-left text-sm font-semibold text-white">
@@ -1783,6 +1948,7 @@ function AppShell() {
           <Route path="/notice" element={<NoticePage />} />
           <Route path="/notice/community" element={<CommunityPage />} />
           <Route path="/notice/press" element={<PressPage />} />
+          <Route path="/mypage" element={<MyPage />} />
           <Route path="/admin/approvals" element={<AdminApprovalsPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
