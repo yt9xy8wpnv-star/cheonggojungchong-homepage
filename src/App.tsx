@@ -243,8 +243,17 @@ function AppShell() {
   const [currentGrade, setCurrentGrade] = useState<number | null>(null)
   const [currentClassNo, setCurrentClassNo] = useState<number | null>(null)
   const [currentStudentNo, setCurrentStudentNo] = useState<number | null>(null)
+  const [currentJoinedAt, setCurrentJoinedAt] = useState('')
+  const [currentSubjectSelections, setCurrentSubjectSelections] = useState<SignupSubjectSelections>(initialSignupSubjectSelections)
   const [isAdmin, setIsAdmin] = useState(false)
   const [isApproved, setIsApproved] = useState(false)
+  const [isEditingProfile, setIsEditingProfile] = useState(false)
+  const [profileEditUsername, setProfileEditUsername] = useState('')
+  const [profileEditPassword, setProfileEditPassword] = useState('')
+  const [profileEditPasswordConfirm, setProfileEditPasswordConfirm] = useState('')
+  const [profileEditSubjects, setProfileEditSubjects] = useState<SignupSubjectSelections>(initialSignupSubjectSelections)
+  const [profileEditMessage, setProfileEditMessage] = useState('')
+  const [profileEditSaving, setProfileEditSaving] = useState(false)
 
   const [loginEmail, setLoginEmail] = useState('')
   const [loginPassword, setLoginPassword] = useState('')
@@ -292,17 +301,25 @@ function AppShell() {
       setCurrentGrade(null)
       setCurrentClassNo(null)
       setCurrentStudentNo(null)
+      setCurrentJoinedAt('')
+      setCurrentSubjectSelections(initialSignupSubjectSelections)
       setIsAdmin(false)
       setIsApproved(false)
       return
     }
 
     try {
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('username, name, grade, class_no, student_no, is_admin, is_approved')
-        .eq('id', userId)
-        .maybeSingle<ProfileRow>()
+      const [{ data, error }, { data: userData, error: userError }] = await Promise.all([
+        supabase
+          .from('profiles')
+          .select('username, name, grade, class_no, student_no, is_admin, is_approved')
+          .eq('id', userId)
+          .maybeSingle<ProfileRow>(),
+        supabase.auth.getUser(),
+      ])
+
+      const authUser = userData.user
+      const metadata = ((authUser?.user_metadata ?? {}) as Record<string, string | undefined>)
 
       if (error || !data) {
         setCurrentUserEmail(email)
@@ -311,19 +328,41 @@ function AppShell() {
         setCurrentGrade(null)
         setCurrentClassNo(null)
         setCurrentStudentNo(null)
+        setCurrentJoinedAt(authUser?.created_at ?? '')
+        setCurrentSubjectSelections({
+          korean: metadata.korean_subject ?? initialSignupSubjectSelections.korean,
+          math: metadata.math_subject ?? initialSignupSubjectSelections.math,
+          english: metadata.english_choice ?? initialSignupSubjectSelections.english,
+          inquiry1: metadata.inquiry1_subject ?? initialSignupSubjectSelections.inquiry1,
+          inquiry2: metadata.inquiry2_subject ?? initialSignupSubjectSelections.inquiry2,
+          secondForeign: metadata.second_foreign_subject ?? initialSignupSubjectSelections.secondForeign,
+        })
         setIsAdmin(false)
         setIsApproved(false)
         return
       }
 
-      setCurrentUserEmail(email)
+      setCurrentUserEmail(authUser?.email ?? email)
       setCurrentUsername(data.username)
       setCurrentName(data.name)
       setCurrentGrade(data.grade)
       setCurrentClassNo(data.class_no)
       setCurrentStudentNo(data.student_no)
+      setCurrentJoinedAt(authUser?.created_at ?? '')
+      setCurrentSubjectSelections({
+        korean: metadata.korean_subject ?? initialSignupSubjectSelections.korean,
+        math: metadata.math_subject ?? initialSignupSubjectSelections.math,
+        english: metadata.english_choice ?? initialSignupSubjectSelections.english,
+        inquiry1: metadata.inquiry1_subject ?? initialSignupSubjectSelections.inquiry1,
+        inquiry2: metadata.inquiry2_subject ?? initialSignupSubjectSelections.inquiry2,
+        secondForeign: metadata.second_foreign_subject ?? initialSignupSubjectSelections.secondForeign,
+      })
       setIsAdmin(data.is_admin)
       setIsApproved(data.is_approved)
+
+      if (userError) {
+        console.error('loadProfile auth user error:', userError)
+      }
     } catch (error) {
       console.error('loadProfile error:', error)
       setCurrentUserEmail(email)
@@ -332,6 +371,8 @@ function AppShell() {
       setCurrentGrade(null)
       setCurrentClassNo(null)
       setCurrentStudentNo(null)
+      setCurrentJoinedAt('')
+      setCurrentSubjectSelections(initialSignupSubjectSelections)
       setIsAdmin(false)
       setIsApproved(false)
     }
@@ -350,8 +391,16 @@ function AppShell() {
       setCurrentGrade(null)
       setCurrentClassNo(null)
       setCurrentStudentNo(null)
+      setCurrentJoinedAt('')
+      setCurrentSubjectSelections(initialSignupSubjectSelections)
       setIsAdmin(false)
       setIsApproved(false)
+      setIsEditingProfile(false)
+      setProfileEditUsername('')
+      setProfileEditPassword('')
+      setProfileEditPasswordConfirm('')
+      setProfileEditSubjects(initialSignupSubjectSelections)
+      setProfileEditMessage('')
     }
 
     const forceReadyTimer = window.setTimeout(() => {
@@ -406,7 +455,7 @@ function AppShell() {
       }
     }
 
-    void initAuth()
+    initAuth()
 
     const sb = supabase
     if (!sb) {
@@ -655,6 +704,104 @@ function AppShell() {
     navigate('/')
   }
 
+  function openProfileEdit() {
+    setProfileEditUsername(currentUsername || '')
+    setProfileEditPassword('')
+    setProfileEditPasswordConfirm('')
+    setProfileEditSubjects(currentSubjectSelections)
+    setProfileEditMessage('')
+    setIsEditingProfile(true)
+  }
+
+  async function handleProfileSave() {
+    if (!supabase) {
+      setProfileEditMessage('Supabase 환경변수가 설정되지 않았습니다. .env.local 또는 Vercel 환경변수를 확인해주세요.')
+      return
+    }
+    if (!currentUserId) {
+      setProfileEditMessage('현재 사용자 정보를 불러오지 못했습니다.')
+      return
+    }
+
+    const nextUsername = profileEditUsername.trim()
+    if (!nextUsername) {
+      setProfileEditMessage('아이디를 입력해주세요.')
+      return
+    }
+    if (
+      profileEditSubjects.inquiry1 !== '응시하지 않음' &&
+      profileEditSubjects.inquiry2 !== '응시하지 않음' &&
+      profileEditSubjects.inquiry1 === profileEditSubjects.inquiry2
+    ) {
+      setProfileEditMessage('탐구 1과 탐구 2의 선택과목이 같습니다. 서로 다르게 선택해야 합니다.')
+      return
+    }
+    if (profileEditPassword && (profileEditPassword.length < 8 || profileEditPassword.length > 20)) {
+      setProfileEditMessage('비밀번호는 8자 이상 20자 이하여야 합니다.')
+      return
+    }
+    if (profileEditPassword !== profileEditPasswordConfirm) {
+      setProfileEditMessage('비밀번호가 서로 일치하지 않습니다.')
+      return
+    }
+
+    setProfileEditSaving(true)
+    setProfileEditMessage('')
+
+    try {
+      const metadataPayload = {
+        username: nextUsername,
+        name: currentName,
+        grade: currentGrade,
+        class_no: currentClassNo,
+        student_no: currentStudentNo,
+        korean_subject: profileEditSubjects.korean,
+        math_subject: profileEditSubjects.math,
+        english_choice: profileEditSubjects.english,
+        inquiry1_subject: profileEditSubjects.inquiry1,
+        inquiry2_subject: profileEditSubjects.inquiry2,
+        second_foreign_subject: profileEditSubjects.secondForeign,
+      }
+
+      const updatePayload: {
+        password?: string
+        data?: typeof metadataPayload
+      } = {
+        data: metadataPayload,
+      }
+
+      if (profileEditPassword) {
+        updatePayload.password = profileEditPassword
+      }
+
+      const { error: authUpdateError } = await supabase.auth.updateUser(updatePayload)
+      if (authUpdateError) {
+        setProfileEditMessage('프로필 수정 실패: ' + authUpdateError.message)
+        return
+      }
+
+      const { error: profileUpdateError } = await supabase
+        .from('profiles')
+        .update({ username: nextUsername })
+        .eq('id', currentUserId)
+
+      if (profileUpdateError) {
+        setProfileEditMessage('프로필 수정 실패: ' + profileUpdateError.message)
+        return
+      }
+
+      await loadProfile(currentUserId, currentUserEmail)
+      setProfileEditPassword('')
+      setProfileEditPasswordConfirm('')
+      setIsEditingProfile(false)
+      setProfileEditMessage('프로필이 수정되었습니다.')
+    } catch (error) {
+      setProfileEditMessage('프로필 수정 실패: ' + (error instanceof Error ? error.message : '알 수 없는 오류'))
+    } finally {
+      setProfileEditSaving(false)
+    }
+  }
+
   async function handleLogout() {
     setMobileMenuOpen(false)
     setOpenDropdown(null)
@@ -667,8 +814,16 @@ function AppShell() {
     setCurrentGrade(null)
     setCurrentClassNo(null)
     setCurrentStudentNo(null)
+    setCurrentJoinedAt('')
+    setCurrentSubjectSelections(initialSignupSubjectSelections)
     setIsAdmin(false)
     setIsApproved(false)
+    setIsEditingProfile(false)
+    setProfileEditUsername('')
+    setProfileEditPassword('')
+    setProfileEditPasswordConfirm('')
+    setProfileEditSubjects(initialSignupSubjectSelections)
+    setProfileEditMessage('')
 
     if (!supabase) {
       navigate('/')
@@ -1871,15 +2026,31 @@ function AppShell() {
       currentGrade && currentClassNo && currentStudentNo
         ? `${currentGrade}학년 ${currentClassNo}반 ${currentStudentNo}번`
         : '학번 정보 없음'
+    const joinedAtLabel = currentJoinedAt
+      ? new Date(currentJoinedAt).toLocaleDateString('ko-KR', {
+          year: 'numeric',
+          month: 'long',
+          day: 'numeric',
+        })
+      : '가입일 정보 없음'
+
+    const subjectRows = [
+      ['국어', currentSubjectSelections.korean],
+      ['수학', currentSubjectSelections.math],
+      ['영어', currentSubjectSelections.english],
+      ['탐구 1', currentSubjectSelections.inquiry1],
+      ['탐구 2', currentSubjectSelections.inquiry2],
+      ['제2외국어/한문', currentSubjectSelections.secondForeign],
+    ] as const
 
     return (
       <SectionShell
         eyebrow="PROFILE"
         title={currentName || currentUsername || currentUserEmail || '내 정보'}
-        description="현재 로그인한 계정의 기본 정보와 권한 상태를 확인할 수 있는 공간이야."
+        description="현재 로그인한 계정의 기본 정보와 선택과목 설정을 확인하고 수정할 수 있는 공간이야."
       >
         <div className="grid gap-6 lg:grid-cols-[1.2fr_0.8fr]">
-          <div className="rounded-[1.8rem] border border-slate-200 bg-white p-6 shadow-sm md:p-8">
+          <div className="space-y-6 rounded-[1.8rem] border border-slate-200 bg-white p-6 shadow-sm md:p-8">
             <div className="flex items-start justify-between gap-4">
               <div>
                 <div className="text-sm font-semibold tracking-[0.18em] text-blue-700">PROFILE</div>
@@ -1891,7 +2062,7 @@ function AppShell() {
               </div>
             </div>
 
-            <div className="mt-8 grid gap-4 md:grid-cols-2">
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
               <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
                 <div className="text-xs font-semibold tracking-[0.16em] text-slate-500">아이디</div>
                 <div className="mt-2 text-lg font-bold text-slate-900">{currentUsername || '-'}</div>
@@ -1905,21 +2076,143 @@ function AppShell() {
                 <div className="mt-2 text-lg font-bold text-slate-900">{classInfo}</div>
               </div>
               <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
-                <div className="text-xs font-semibold tracking-[0.16em] text-slate-500">승인 상태</div>
-                <div className="mt-2 text-lg font-bold text-slate-900">{isApproved ? '승인 완료' : '승인 대기 중'}</div>
+                <div className="text-xs font-semibold tracking-[0.16em] text-slate-500">가입일</div>
+                <div className="mt-2 text-lg font-bold text-slate-900">{joinedAtLabel}</div>
+              </div>
+            </div>
+
+            <div className="rounded-[1.6rem] border border-slate-200 bg-slate-50 p-6">
+              <div className="text-sm font-semibold tracking-[0.18em] text-blue-700">선택과목 설정</div>
+              <div className="mt-5 grid gap-4 md:grid-cols-2">
+                {subjectRows.map(([label, value]) => (
+                  <div key={label} className="rounded-2xl border border-slate-200 bg-white p-4">
+                    <div className="text-xs font-semibold tracking-[0.16em] text-slate-500">{label}</div>
+                    <div className="mt-2 text-base font-bold text-slate-900">{value || '-'}</div>
+                  </div>
+                ))}
               </div>
             </div>
           </div>
 
           <div className="space-y-5">
             <div className="rounded-[1.8rem] border border-slate-200 bg-slate-50 p-6">
+              <div className="flex items-center justify-between gap-3">
+                <div className="text-sm font-semibold tracking-[0.18em] text-blue-700">EDIT</div>
+                {!isEditingProfile ? (
+                  <button
+                    onClick={openProfileEdit}
+                    className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-800 transition hover:border-blue-300 hover:text-blue-700"
+                  >
+                    프로필 수정
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => {
+                      setIsEditingProfile(false)
+                      setProfileEditMessage('')
+                    }}
+                    className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-800 transition hover:border-slate-400"
+                  >
+                    닫기
+                  </button>
+                )}
+              </div>
+
+              {profileEditMessage && (
+                <div className={`mt-4 rounded-2xl px-4 py-3 text-sm font-medium ${profileEditMessage.includes('수정되었습니다') ? 'bg-blue-50 text-blue-700' : 'bg-red-50 text-red-600'}`}>
+                  {profileEditMessage}
+                </div>
+              )}
+
+              {isEditingProfile ? (
+                <div className="mt-5 space-y-4">
+                  <div>
+                    <label className="mb-2 block text-sm font-semibold text-slate-700">아이디</label>
+                    <input
+                      value={profileEditUsername}
+                      onChange={(event) => setProfileEditUsername(event.target.value)}
+                      className="w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-base outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                      placeholder="아이디"
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-2 block text-sm font-semibold text-slate-700">새 비밀번호</label>
+                    <input
+                      type="password"
+                      value={profileEditPassword}
+                      onChange={(event) => setProfileEditPassword(event.target.value)}
+                      className="w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-base outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                      placeholder="변경하지 않으려면 비워두기"
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-2 block text-sm font-semibold text-slate-700">새 비밀번호 확인</label>
+                    <input
+                      type="password"
+                      value={profileEditPasswordConfirm}
+                      onChange={(event) => setProfileEditPasswordConfirm(event.target.value)}
+                      className="w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-base outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                      placeholder="비밀번호 재입력"
+                    />
+                  </div>
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <div>
+                      <label className="mb-2 block text-sm font-semibold text-slate-700">국어 선택과목</label>
+                      <select value={profileEditSubjects.korean} onChange={(event) => setProfileEditSubjects((prev) => ({ ...prev, korean: event.target.value }))} className="w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-base outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100">
+                        {koreanOptions.map((subject) => <option key={subject}>{subject}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="mb-2 block text-sm font-semibold text-slate-700">수학 선택과목</label>
+                      <select value={profileEditSubjects.math} onChange={(event) => setProfileEditSubjects((prev) => ({ ...prev, math: event.target.value }))} className="w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-base outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100">
+                        {mathOptions.map((subject) => <option key={subject}>{subject}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="mb-2 block text-sm font-semibold text-slate-700">영어 응시 여부</label>
+                      <select value={profileEditSubjects.english} onChange={(event) => setProfileEditSubjects((prev) => ({ ...prev, english: event.target.value }))} className="w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-base outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100">
+                        {['응시함', '응시하지 않음'].map((subject) => <option key={subject}>{subject}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="mb-2 block text-sm font-semibold text-slate-700">탐구 1</label>
+                      <select value={profileEditSubjects.inquiry1} onChange={(event) => setProfileEditSubjects((prev) => ({ ...prev, inquiry1: event.target.value }))} className="w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-base outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100">
+                        {['응시하지 않음', ...inquiryOptions].map((subject) => <option key={subject}>{subject}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="mb-2 block text-sm font-semibold text-slate-700">탐구 2</label>
+                      <select value={profileEditSubjects.inquiry2} onChange={(event) => setProfileEditSubjects((prev) => ({ ...prev, inquiry2: event.target.value }))} className="w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-base outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100">
+                        {['응시하지 않음', ...inquiryOptions].map((subject) => <option key={subject}>{subject}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="mb-2 block text-sm font-semibold text-slate-700">제2외국어/한문</label>
+                      <select value={profileEditSubjects.secondForeign} onChange={(event) => setProfileEditSubjects((prev) => ({ ...prev, secondForeign: event.target.value }))} className="w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-base outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100">
+                        {['응시하지 않음', '독일어Ⅰ', '프랑스어Ⅰ', '스페인어Ⅰ', '중국어Ⅰ', '일본어Ⅰ', '러시아어Ⅰ', '아랍어Ⅰ', '베트남어Ⅰ', '한문Ⅰ'].map((subject) => <option key={subject}>{subject}</option>)}
+                      </select>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => void handleProfileSave()}
+                    disabled={profileEditSaving}
+                    className="w-full rounded-2xl bg-blue-700 px-5 py-3 text-sm font-semibold text-white transition hover:bg-blue-800 disabled:cursor-not-allowed disabled:bg-blue-300"
+                  >
+                    {profileEditSaving ? '수정 중...' : '프로필 저장'}
+                  </button>
+                </div>
+              ) : (
+                <div className="mt-4 text-sm leading-relaxed text-slate-600">
+                  아이디, 비밀번호, 선택과목 설정을 여기서 수정할 수 있어.
+                </div>
+              )}
+            </div>
+
+            <div className="rounded-[1.8rem] border border-slate-200 bg-slate-50 p-6">
               <div className="text-sm font-semibold tracking-[0.18em] text-blue-700">ACCOUNT</div>
-              <p className="mt-3 text-sm leading-relaxed text-slate-600">
-                로그아웃은 여기서 할 수 있어. 승인 전 계정은 주요 기능 접근이 제한될 수 있어.
-              </p>
               <button
                 onClick={() => void handleLogout()}
-                className="mt-6 w-full rounded-2xl bg-slate-900 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-800"
+                className="mt-5 w-full rounded-2xl bg-slate-900 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-800"
               >
                 로그아웃
               </button>
