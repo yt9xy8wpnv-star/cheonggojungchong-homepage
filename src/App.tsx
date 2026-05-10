@@ -324,6 +324,33 @@ function AppShell() {
   const [scoreForm, setScoreForm] = useState<ScoreForm>(initialScoreForm)
   const [scoreMessage, setScoreMessage] = useState('')
 
+  function resetAuthState() {
+    setCurrentUserId('')
+    setIsLoggedIn(false)
+    setCurrentUserEmail('')
+    setCurrentUsername('')
+    setCurrentName('')
+    setCurrentGrade(null)
+    setCurrentClassNo(null)
+    setCurrentStudentNo(null)
+    setCurrentJoinedAt('')
+    setCurrentSubjectSelections(initialSignupSubjectSelections)
+    setProfileEditUsername('')
+    setProfileEditPassword('')
+    setProfileEditPasswordConfirm('')
+    setProfileEditSubjects(initialSignupSubjectSelections)
+    setProfileEditMessage('')
+    setIsAdmin(false)
+    setIsApproved(false)
+    setStudySeconds(0)
+    setStudyRunning(false)
+    setCurrentStudySubject('국어')
+    setSubjectSeconds(createEmptySubjectSeconds())
+    setStudySyncMessage('')
+    setStudyLeaderboard([])
+    setSelectedLeaderboardUserId(null)
+  }
+
   async function loadProfile(userId: string, email: string, userMeta?: Record<string, unknown>, joinedAt?: string) {
     if (!supabase) {
       setCurrentUserEmail(email)
@@ -391,42 +418,46 @@ function AppShell() {
   useEffect(() => {
     let mounted = true
 
+    async function applySession(session: { user?: { id: string; email?: string; user_metadata?: Record<string, unknown>; created_at?: string } } | null) {
+      if (!mounted) return
+
+      if (session?.user) {
+        setCurrentUserId(session.user.id)
+        setIsLoggedIn(true)
+        try {
+          await loadProfile(session.user.id, session.user.email ?? '', session.user.user_metadata ?? {}, session.user.created_at ?? '')
+        } catch (error) {
+          console.error('profile load error:', error)
+        }
+        return
+      }
+
+      resetAuthState()
+    }
+
     async function initAuth() {
       if (!supabase) {
         if (mounted) setSessionReady(true)
         return
       }
 
-      const { data } = await supabase.auth.getSession()
-      const session = data.session
-
-      if (!mounted) return
-
-      if (session?.user) {
-        setCurrentUserId(session.user.id)
-        setIsLoggedIn(true)
-        await loadProfile(session.user.id, session.user.email ?? '', session.user.user_metadata ?? {}, session.user.created_at ?? '')
-      } else {
-        setCurrentUserId('')
-        setIsLoggedIn(false)
-        setCurrentUserEmail('')
-        setCurrentUsername('')
-        setCurrentName('')
-        setCurrentGrade(null)
-        setCurrentClassNo(null)
-        setCurrentStudentNo(null)
-        setCurrentJoinedAt('')
-        setCurrentSubjectSelections(initialSignupSubjectSelections)
-        setProfileEditUsername('')
-        setProfileEditSubjects(initialSignupSubjectSelections)
-        setIsAdmin(false)
-        setIsApproved(false)
+      try {
+        const { data, error } = await supabase.auth.getSession()
+        if (error) {
+          console.error('auth session restore error:', error)
+          await applySession(null)
+        } else {
+          await applySession(data.session)
+        }
+      } catch (error) {
+        console.error('auth init error:', error)
+        await applySession(null)
+      } finally {
+        if (mounted) setSessionReady(true)
       }
-
-      setSessionReady(true)
     }
 
-    initAuth()
+    void initAuth()
 
     if (!supabase) {
       return () => {
@@ -439,25 +470,13 @@ function AppShell() {
     } = supabase.auth.onAuthStateChange(async (_event, session) => {
       if (!mounted) return
 
-      if (session?.user) {
-        setCurrentUserId(session.user.id)
-        setIsLoggedIn(true)
-        await loadProfile(session.user.id, session.user.email ?? '', session.user.user_metadata ?? {}, session.user.created_at ?? '')
-      } else {
-        setCurrentUserId('')
-        setIsLoggedIn(false)
-        setCurrentUserEmail('')
-        setCurrentUsername('')
-        setCurrentName('')
-        setCurrentGrade(null)
-        setCurrentClassNo(null)
-        setCurrentStudentNo(null)
-        setCurrentJoinedAt('')
-        setCurrentSubjectSelections(initialSignupSubjectSelections)
-        setProfileEditUsername('')
-        setProfileEditSubjects(initialSignupSubjectSelections)
-        setIsAdmin(false)
-        setIsApproved(false)
+      try {
+        await applySession(session)
+      } catch (error) {
+        console.error('auth state change error:', error)
+        resetAuthState()
+      } finally {
+        if (mounted) setSessionReady(true)
       }
     })
 
@@ -581,29 +600,15 @@ function AppShell() {
 
     if (!user) return false
 
-    const { data: existing } = await client
+    const { error } = await client
       .from('profiles')
       .select('id')
       .eq('id', user.id)
       .maybeSingle()
 
-    if (existing) return true
-
-    const meta = user.user_metadata ?? {}
-
-    const { error } = await client.from('profiles').insert({
-      id: user.id,
-      email: user.email ?? loginEmail.trim(),
-      username: String(meta.username ?? currentUsername ?? 'user'),
-      name: String(meta.name ?? currentName ?? '이름없음'),
-      grade: meta.grade ? Number(meta.grade) : null,
-      class_no: meta.class_no ? Number(meta.class_no) : null,
-      student_no: meta.student_no ? Number(meta.student_no) : null,
-    })
-
     if (error) {
-      setLoginMessage('프로필 생성 실패: ' + error.message)
-      return false
+      console.error('profile existence check failed:', error)
+      return true
     }
 
     return true
@@ -629,33 +634,14 @@ function AppShell() {
       return
     }
 
-    const ok = await ensureProfileExists()
-    if (!ok) return
+    await ensureProfileExists()
 
     setLoginMessage('로그인 성공')
     navigate('/')
   }
 
   async function handleLogout() {
-    setCurrentUserId('')
-    setIsLoggedIn(false)
-    setCurrentUserEmail('')
-    setCurrentUsername('')
-    setCurrentName('')
-    setCurrentGrade(null)
-    setCurrentClassNo(null)
-    setCurrentStudentNo(null)
-    setCurrentJoinedAt('')
-    setCurrentSubjectSelections(initialSignupSubjectSelections)
-    setProfileEditUsername('')
-    setProfileEditPassword('')
-    setProfileEditPasswordConfirm('')
-    setProfileEditSubjects(initialSignupSubjectSelections)
-    setProfileEditMessage('')
-    setIsAdmin(false)
-    setIsApproved(false)
-    setStudyRunning(false)
-    setStudySyncMessage('')
+    resetAuthState()
     if (!supabase) {
       navigate('/')
       return
@@ -900,7 +886,8 @@ function AppShell() {
 
     setProfileSaving(true)
     try {
-      const { error: profileError } = await supabase
+      const client = supabase
+      const { error: profileError } = await client
         .from('profiles')
         .update({ username: trimmedUsername })
         .eq('id', currentUserId)
