@@ -294,13 +294,38 @@ function AppShell() {
       return
     }
 
-    const { data, error } = await supabase
-      .from('profiles')
-      .select('username, name, grade, class_no, student_no, is_admin, is_approved')
-      .eq('id', userId)
-      .single<ProfileRow>()
+    try {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('username, name, grade, class_no, student_no, is_admin, is_approved')
+        .eq('id', userId)
+        .maybeSingle<ProfileRow>()
 
-    if (error || !data) {
+      if (error || !data) {
+        setCurrentUserId(userId)
+        setCurrentUserEmail(email)
+        setCurrentUsername(email)
+        setCurrentName('')
+        setCurrentGrade(null)
+        setCurrentClassNo(null)
+        setCurrentStudentNo(null)
+        setIsAdmin(false)
+        setIsApproved(false)
+        return
+      }
+
+      setCurrentUserId(userId)
+      setCurrentUserEmail(email)
+      setCurrentUsername(data.username)
+      setCurrentName(data.name)
+      setCurrentGrade(data.grade)
+      setCurrentClassNo(data.class_no)
+      setCurrentStudentNo(data.student_no)
+      setIsAdmin(data.is_admin)
+      setIsApproved(data.is_approved)
+    } catch (error) {
+      console.error('loadProfile error:', error)
+      setCurrentUserId(userId)
       setCurrentUserEmail(email)
       setCurrentUsername(email)
       setCurrentName('')
@@ -309,28 +334,11 @@ function AppShell() {
       setCurrentStudentNo(null)
       setIsAdmin(false)
       setIsApproved(false)
-      return
     }
-
-    setCurrentUserId(userId)
-    setCurrentUserEmail(email)
-    setCurrentUsername(data.username)
-    setCurrentName(data.name)
-    setCurrentGrade(data.grade)
-    setCurrentClassNo(data.class_no)
-    setCurrentStudentNo(data.student_no)
-    setIsAdmin(data.is_admin)
-    setIsApproved(data.is_approved)
   }
 
   useEffect(() => {
     let mounted = true
-    const forceReadyTimer = window.setTimeout(() => {
-      if (!mounted) return
-      console.warn('auth bootstrap fallback triggered')
-      resetLoggedOutState()
-      setSessionReady(true)
-    }, 5000)
 
     function resetLoggedOutState() {
       setCurrentUserId('')
@@ -345,6 +353,25 @@ function AppShell() {
       setIsApproved(false)
     }
 
+    async function applySession(session: { user?: { id: string; email?: string | null } } | null) {
+      try {
+        if (!mounted) return
+
+        if (session?.user) {
+          setIsLoggedIn(true)
+          await loadProfile(session.user.id, session.user.email ?? '')
+        } else {
+          resetLoggedOutState()
+        }
+      } catch (error) {
+        console.error('applySession error:', error)
+        if (!mounted) return
+        resetLoggedOutState()
+      } finally {
+        if (mounted) setSessionReady(true)
+      }
+    }
+
     async function initAuth() {
       try {
         if (!supabase) {
@@ -352,23 +379,13 @@ function AppShell() {
           return
         }
 
-        const { data } = await withTimeout(supabase.auth.getSession(), 4000, 'getSession')
-        const session = data.session
+        const {
+          data: { session },
+        } = await supabase.auth.getSession()
 
-        if (!mounted) return
-
-        if (session?.user) {
-          setIsLoggedIn(true)
-          await withTimeout(loadProfile(session.user.id, session.user.email ?? ''), 4000, 'loadProfile')
-        } else {
-          resetLoggedOutState()
-        }
+        await applySession(session)
       } catch (error) {
         console.error('initAuth error:', error)
-        if (mounted) {
-          resetLoggedOutState()
-        }
-      } finally {
         if (mounted) setSessionReady(true)
       }
     }
@@ -378,35 +395,17 @@ function AppShell() {
     if (!supabase) {
       return () => {
         mounted = false
-        window.clearTimeout(forceReadyTimer)
       }
     }
 
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange(async (_event, session) => {
-      if (!mounted) return
-
-      try {
-        if (session?.user) {
-          setIsLoggedIn(true)
-          await withTimeout(loadProfile(session.user.id, session.user.email ?? ''), 4000, 'loadProfile')
-        } else {
-          resetLoggedOutState()
-        }
-      } catch (error) {
-        console.error('auth state change error:', error)
-        if (mounted) {
-          resetLoggedOutState()
-        }
-      } finally {
-        if (mounted) setSessionReady(true)
-      }
+      await applySession(session)
     })
 
     return () => {
       mounted = false
-      window.clearTimeout(forceReadyTimer)
       subscription.unsubscribe()
     }
   }, [])
