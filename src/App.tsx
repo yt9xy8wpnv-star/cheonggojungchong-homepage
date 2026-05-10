@@ -1,4 +1,4 @@
-import { createClient, type Session } from '@supabase/supabase-js'
+import { createClient } from '@supabase/supabase-js'
 import { BrowserRouter, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom'
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 
@@ -7,18 +7,6 @@ type ProfileRow = {
   name: string
   is_admin: boolean
   is_approved: boolean
-}
-
-type StudySubject = '국어' | '수학' | '영어' | '탐구1' | '탐구2' | '한국사'
-
-type StudyTimerStatusRow = {
-  user_id: string
-  username: string | null
-  name: string | null
-  current_seconds: number | null
-  is_running: boolean | null
-  updated_at: string | null
-  current_subject: StudySubject | null
 }
 
 type SignupSubjectSelections = {
@@ -41,6 +29,19 @@ type ScoreForm = {
   koreanHistory: string
   inquiry1: string
   inquiry2: string
+}
+
+type SubjectSecondsMap = Record<string, number>
+
+type StudyTimerRow = {
+  user_id: string
+  username: string | null
+  name: string | null
+  current_seconds: number | null
+  is_running: boolean | null
+  current_subject: string | null
+  subject_seconds: unknown
+  updated_at: string | null
 }
 
 const viteEnv =
@@ -77,6 +78,33 @@ const inquiryOptions = [
   '생명과학Ⅱ',
   '지구과학Ⅱ',
 ]
+
+
+const studySubjectOptions = ['국어', '수학', '영어', '탐구1', '탐구2', '한국사'] as const
+
+function createEmptySubjectSeconds(): SubjectSecondsMap {
+  return Object.fromEntries(studySubjectOptions.map((subject) => [subject, 0])) as SubjectSecondsMap
+}
+
+function normalizeSubjectSeconds(value: unknown): SubjectSecondsMap {
+  const base = createEmptySubjectSeconds()
+  if (!value || typeof value !== 'object') return base
+
+  for (const subject of studySubjectOptions) {
+    const raw = (value as Record<string, unknown>)[subject]
+    const parsed = typeof raw === 'number' ? raw : Number(raw ?? 0)
+    base[subject] = Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : 0
+  }
+
+  return base
+}
+
+function formatStudyDuration(totalSeconds: number) {
+  const hours = Math.floor(totalSeconds / 3600)
+  const minutes = Math.floor((totalSeconds % 3600) / 60)
+  const seconds = totalSeconds % 60
+  return [hours, minutes, seconds].map((value) => String(value).padStart(2, '0')).join(':')
+}
 
 const cutlineRows = [
   ['국어(화법과 작문)', '100-97', '129', '96', '96-92', '125', '91'],
@@ -193,27 +221,6 @@ const initialScoreForm: ScoreForm = {
   inquiry2: '',
 }
 
-function formatStudyDuration(totalSeconds: number) {
-  const safeSeconds = Math.max(0, Math.floor(totalSeconds))
-  const hours = Math.floor(safeSeconds / 3600)
-  const minutes = Math.floor((safeSeconds % 3600) / 60)
-  const seconds = safeSeconds % 60
-  return [hours, minutes, seconds].map((value) => String(value).padStart(2, '0')).join(':')
-}
-
-function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
-  return new Promise<T>((resolve, reject) => {
-    const timeoutId = window.setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms)
-    promise.then((value) => {
-      window.clearTimeout(timeoutId)
-      resolve(value)
-    }).catch((error) => {
-      window.clearTimeout(timeoutId)
-      reject(error)
-    })
-  })
-}
-
 function SectionShell({
   eyebrow,
   title,
@@ -245,13 +252,21 @@ function AppShell() {
 
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [sessionReady, setSessionReady] = useState(false)
-  const [currentUserId, setCurrentUserId] = useState('')
   const [isLoggedIn, setIsLoggedIn] = useState(false)
+  const [currentUserId, setCurrentUserId] = useState('')
   const [currentUserEmail, setCurrentUserEmail] = useState('')
   const [currentUsername, setCurrentUsername] = useState('')
   const [currentName, setCurrentName] = useState('')
   const [isAdmin, setIsAdmin] = useState(false)
   const [isApproved, setIsApproved] = useState(false)
+
+  const [studySeconds, setStudySeconds] = useState(0)
+  const [studyRunning, setStudyRunning] = useState(false)
+  const [currentStudySubject, setCurrentStudySubject] = useState<(typeof studySubjectOptions)[number]>('국어')
+  const [subjectSeconds, setSubjectSeconds] = useState<SubjectSecondsMap>(createEmptySubjectSeconds)
+  const [studySyncMessage, setStudySyncMessage] = useState('')
+  const [studyLeaderboard, setStudyLeaderboard] = useState<StudyTimerRow[]>([])
+  const [selectedLeaderboardUserId, setSelectedLeaderboardUserId] = useState<string | null>(null)
 
   const [loginEmail, setLoginEmail] = useState('')
   const [loginPassword, setLoginPassword] = useState('')
@@ -277,7 +292,6 @@ function AppShell() {
 
   async function loadProfile(userId: string, email: string) {
     if (!supabase) {
-      setCurrentUserId(userId)
       setCurrentUserEmail(email)
       setCurrentUsername(email)
       setCurrentName('')
@@ -286,114 +300,89 @@ function AppShell() {
       return
     }
 
-    try {
-      const { data, error } = await withTimeout(
-        supabase
-          .from('profiles')
-          .select('username, name, is_admin, is_approved')
-          .eq('id', userId)
-          .maybeSingle<ProfileRow>(),
-        4000,
-        'loadProfile',
-      )
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('username, name, is_admin, is_approved')
+      .eq('id', userId)
+      .maybeSingle<ProfileRow>()
 
-      if (error) throw error
-
-      setCurrentUserId(userId)
-      setCurrentUserEmail(email)
-      setCurrentUsername(data?.username ?? email)
-      setCurrentName(data?.name ?? '')
-      setIsAdmin(Boolean(data?.is_admin))
-      setIsApproved(Boolean(data?.is_approved))
-    } catch (error) {
-      console.error('loadProfile error:', error)
-      setCurrentUserId(userId)
+    if (error || !data) {
       setCurrentUserEmail(email)
       setCurrentUsername(email)
       setCurrentName('')
       setIsAdmin(false)
       setIsApproved(false)
+      return
     }
+
+    setCurrentUserEmail(email)
+    setCurrentUsername(data.username)
+    setCurrentName(data.name)
+    setIsAdmin(data.is_admin)
+    setIsApproved(data.is_approved)
   }
 
   useEffect(() => {
     let mounted = true
-    let authResolved = false
-
-    function resetLoggedOutState() {
-      setCurrentUserId('')
-      setIsLoggedIn(false)
-      setCurrentUserEmail('')
-      setCurrentUsername('')
-      setCurrentName('')
-      setIsAdmin(false)
-      setIsApproved(false)
-    }
-
-    const forceReadyTimer = window.setTimeout(() => {
-      if (!mounted || authResolved) return
-      resetLoggedOutState()
-      setSessionReady(true)
-    }, 5000)
-
-    function finishAuthBootstrap() {
-      authResolved = true
-      window.clearTimeout(forceReadyTimer)
-      if (mounted) setSessionReady(true)
-    }
-
-    async function applySession(session: Session | null) {
-      try {
-        if (!mounted) return
-        if (session?.user) {
-          setIsLoggedIn(true)
-          await loadProfile(session.user.id, session.user.email ?? '')
-        } else {
-          resetLoggedOutState()
-        }
-      } catch (error) {
-        console.error('applySession error:', error)
-        if (mounted) resetLoggedOutState()
-      } finally {
-        finishAuthBootstrap()
-      }
-    }
 
     async function initAuth() {
-      try {
-        const sb = supabase
-        if (!sb) {
-          finishAuthBootstrap()
-          return
-        }
-        const { data } = await withTimeout(sb.auth.getSession(), 4000, 'getSession')
-        await applySession(data.session)
-      } catch (error) {
-        console.error('initAuth error:', error)
-        if (mounted) resetLoggedOutState()
-        finishAuthBootstrap()
+      if (!supabase) {
+        if (mounted) setSessionReady(true)
+        return
       }
+
+      const { data } = await supabase.auth.getSession()
+      const session = data.session
+
+      if (!mounted) return
+
+      if (session?.user) {
+        setCurrentUserId(session.user.id)
+        setIsLoggedIn(true)
+        await loadProfile(session.user.id, session.user.email ?? '')
+      } else {
+        setCurrentUserId('')
+        setIsLoggedIn(false)
+        setCurrentUserEmail('')
+        setCurrentUsername('')
+        setCurrentName('')
+        setIsAdmin(false)
+        setIsApproved(false)
+      }
+
+      setSessionReady(true)
     }
 
-    void initAuth()
+    initAuth()
 
-    const sb = supabase
-    if (!sb) {
+    if (!supabase) {
       return () => {
         mounted = false
-        window.clearTimeout(forceReadyTimer)
       }
     }
 
     const {
       data: { subscription },
-    } = sb.auth.onAuthStateChange(async (_event, session) => {
-      await applySession(session)
+    } = supabase.auth.onAuthStateChange(async (_event, session) => {
+      if (!mounted) return
+
+      if (session?.user) {
+        setCurrentUserId(session.user.id)
+        setIsLoggedIn(true)
+        await loadProfile(session.user.id, session.user.email ?? '')
+      } else {
+        setCurrentUserId('')
+        setIsLoggedIn(false)
+        setCurrentUserEmail('')
+        setCurrentUsername('')
+        setCurrentName('')
+        setIsAdmin(false)
+        setIsApproved(false)
+      }
     })
 
     return () => {
       mounted = false
-      window.clearTimeout(forceReadyTimer)
       subscription.unsubscribe()
     }
   }, [])
@@ -488,7 +477,7 @@ function AppShell() {
       return
     }
 
-    setSignupMessage('회원가입 신청이 완료되었습니다. 관리자 승인 후 주요 기능을 사용할 수 있습니다.')
+    setSignupMessage('회원가입이 완료되었습니다. 이제 로그인할 수 있습니다.')
     setSignupEmail('')
     setSignupPassword('')
     setSignupPasswordConfirm('')
@@ -508,29 +497,49 @@ function AppShell() {
 
     if (!user) return false
 
-    const meta = user.user_metadata ?? {}
+    try {
+      const { data: existing, error: existingError } = await supabase
+        .from('profiles')
+        .select('id')
+        .eq('id', user.id)
+        .maybeSingle()
 
-    const { error } = await supabase.from('profiles').upsert(
-      {
+      if (existingError) {
+        setLoginMessage('프로필 확인 실패: ' + existingError.message)
+        return false
+      }
+
+      if (existing) return true
+
+      const meta = user.user_metadata ?? {}
+      const generatedUsername = String(meta.username ?? currentUsername ?? (user.email?.split('@')[0] ?? 'user'))
+      const generatedName = String(meta.name ?? currentName ?? generatedUsername)
+
+      const { error } = await supabase.from('profiles').insert({
         id: user.id,
         email: user.email ?? loginEmail.trim(),
-        username: String(meta.username ?? currentUsername ?? 'user'),
-        name: String(meta.name ?? currentName ?? '이름없음'),
+        username: generatedUsername,
+        name: generatedName,
         grade: meta.grade ? Number(meta.grade) : null,
         class_no: meta.class_no ? Number(meta.class_no) : null,
         student_no: meta.student_no ? Number(meta.student_no) : null,
-        is_admin: false,
-        is_approved: false,
-      },
-      { onConflict: 'id' },
-    )
+      })
 
-    if (error) {
-      setLoginMessage('프로필 생성 실패: ' + error.message)
+      if (error) {
+        if (error.code == '23505') return true
+        setLoginMessage('프로필 생성 실패: ' + error.message)
+        return false
+      }
+
+      return true
+    } catch (error) {
+      const message =
+        typeof error === 'object' && error !== null && 'message' in error
+          ? String((error as { message?: unknown }).message ?? '알 수 없는 오류가 발생했습니다.')
+          : '알 수 없는 오류가 발생했습니다.'
+      setLoginMessage('프로필 생성 실패: ' + message)
       return false
     }
-
-    return true
   }
 
   async function handleSupabaseLogin() {
@@ -554,14 +563,6 @@ function AppShell() {
     const ok = await ensureProfileExists()
     if (!ok) return
 
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
-
-    if (user) {
-      await loadProfile(user.id, user.email ?? loginEmail.trim())
-    }
-
     setLoginMessage('로그인 성공')
     navigate('/')
   }
@@ -574,20 +575,156 @@ function AppShell() {
     setCurrentName('')
     setIsAdmin(false)
     setIsApproved(false)
-
+    setStudyRunning(false)
+    setStudySyncMessage('')
     if (!supabase) {
       navigate('/')
       return
     }
+    await supabase.auth.signOut()
+    navigate('/')
+  }
 
-    try {
-      await withTimeout(supabase.auth.signOut(), 3000, 'signOut')
-    } catch (error) {
-      console.error('signOut error:', error)
-    } finally {
-      navigate('/')
+
+  async function persistStudyTimerState(next: {
+    currentSeconds: number
+    isRunning: boolean
+    currentSubject: string
+    subjectTotals: SubjectSecondsMap
+  }) {
+    if (!supabase || !currentUserId) return
+
+    const { error } = await supabase.from('study_timer_status').upsert(
+      {
+        user_id: currentUserId,
+        username: currentUsername || currentUserEmail.split('@')[0] || 'user',
+        name: currentName || null,
+        current_seconds: next.currentSeconds,
+        is_running: next.isRunning,
+        current_subject: next.currentSubject,
+        subject_seconds: next.subjectTotals,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: 'user_id' },
+    )
+
+    if (error) {
+      const message = typeof error === 'object' && error !== null && 'message' in error ? String((error as { message?: unknown }).message ?? '알 수 없는 오류가 발생했습니다.') : '알 수 없는 오류가 발생했습니다.'
+      throw new Error(message)
     }
   }
+
+  async function fetchStudyLeaderboard() {
+    if (!supabase || !isLoggedIn) return
+
+    const { data, error } = await supabase
+      .from('study_timer_status')
+      .select('user_id, username, name, current_seconds, is_running, current_subject, subject_seconds, updated_at')
+      .order('current_seconds', { ascending: false })
+      .order('updated_at', { ascending: false })
+      .limit(20)
+
+    if (error) {
+      const message = typeof error === 'object' && error !== null && 'message' in error ? String((error as { message?: unknown }).message ?? '알 수 없는 오류가 발생했습니다.') : '알 수 없는 오류가 발생했습니다.'
+      throw new Error(message)
+    }
+
+    setStudyLeaderboard((data ?? []) as StudyTimerRow[])
+  }
+
+  useEffect(() => {
+    if (!studyRunning) return
+
+    const tick = window.setInterval(() => {
+      setStudySeconds((prev) => prev + 1)
+      setSubjectSeconds((prev) => ({
+        ...prev,
+        [currentStudySubject]: (prev[currentStudySubject] ?? 0) + 1,
+      }))
+    }, 1000)
+
+    return () => window.clearInterval(tick)
+  }, [studyRunning, currentStudySubject])
+
+  useEffect(() => {
+    if (!supabase || !isLoggedIn || !currentUserId) return
+
+    let cancelled = false
+
+    async function bootstrapStudyTimer() {
+      try {
+        const { data, error } = await supabase
+          .from('study_timer_status')
+          .select('current_seconds, is_running, current_subject, subject_seconds')
+          .eq('user_id', currentUserId)
+          .maybeSingle()
+
+        if (error) throw error
+        if (cancelled || !data) return
+
+        setStudySeconds(Number(data.current_seconds ?? 0))
+        setStudyRunning(Boolean(data.is_running))
+        if (typeof data.current_subject === 'string' && studySubjectOptions.includes(data.current_subject as (typeof studySubjectOptions)[number])) {
+          setCurrentStudySubject(data.current_subject as (typeof studySubjectOptions)[number])
+        }
+        setSubjectSeconds(normalizeSubjectSeconds(data.subject_seconds))
+      } catch (error) {
+        console.error('study timer bootstrap error:', error)
+      }
+    }
+
+    void bootstrapStudyTimer()
+
+    return () => {
+      cancelled = true
+    }
+  }, [currentUserId, isLoggedIn])
+
+  useEffect(() => {
+    if (!supabase || !isLoggedIn || !currentUserId) return
+
+    const sync = window.setInterval(() => {
+      void persistStudyTimerState({
+        currentSeconds: studySeconds,
+        isRunning: studyRunning,
+        currentSubject: currentStudySubject,
+        subjectTotals: subjectSeconds,
+      }).then(() => {
+        setStudySyncMessage('')
+      }).catch((error) => {
+        const message = error instanceof Error ? error.message : '알 수 없는 오류가 발생했습니다.'
+        setStudySyncMessage(`타이머 상태를 동기화하지 못했습니다: ${message}`)
+      })
+    }, 5000)
+
+    return () => window.clearInterval(sync)
+  }, [currentStudySubject, currentUserId, isLoggedIn, studyRunning, studySeconds, subjectSeconds])
+
+  useEffect(() => {
+    if (!supabase || !isLoggedIn) return
+
+    let cancelled = false
+
+    async function loadLeaderboard() {
+      try {
+        await fetchStudyLeaderboard()
+      } catch (error) {
+        if (!cancelled) {
+          console.error('study leaderboard error:', error)
+        }
+      }
+    }
+
+    void loadLeaderboard()
+    const timer = window.setInterval(() => {
+      void loadLeaderboard()
+    }, 5000)
+
+    return () => {
+      cancelled = true
+      window.clearInterval(timer)
+    }
+  }, [isLoggedIn])
 
   const predictedTotal = useMemo(
     () =>
@@ -1483,262 +1620,266 @@ function AppShell() {
     )
   }
 
+  function MyPagePage() {
+    if (!isLoggedIn) {
+      return <Navigate to="/login" replace />
+    }
+
+    return (
+      <SectionShell
+        eyebrow="PROFILE"
+        title={currentName || currentUsername || '내 정보'}
+        description="아이디와 계정 상태를 확인하고 여기서 로그아웃할 수 있어."
+      >
+        <div className="grid gap-4 md:grid-cols-2">
+          <div className="rounded-[1.5rem] border border-slate-200 bg-slate-50 p-6">
+            <div className="text-sm font-semibold tracking-[0.18em] text-blue-700">아이디</div>
+            <div className="mt-3 text-2xl font-black tracking-tight text-slate-900">{currentUsername || '-'}</div>
+          </div>
+          <div className="rounded-[1.5rem] border border-slate-200 bg-slate-50 p-6">
+            <div className="text-sm font-semibold tracking-[0.18em] text-blue-700">이메일</div>
+            <div className="mt-3 break-all text-lg font-semibold text-slate-900">{currentUserEmail || '-'}</div>
+          </div>
+          <div className="rounded-[1.5rem] border border-slate-200 bg-slate-50 p-6">
+            <div className="text-sm font-semibold tracking-[0.18em] text-blue-700">이름</div>
+            <div className="mt-3 text-xl font-bold text-slate-900">{currentName || '-'}</div>
+          </div>
+          <div className="rounded-[1.5rem] border border-slate-200 bg-slate-50 p-6">
+            <div className="text-sm font-semibold tracking-[0.18em] text-blue-700">권한 상태</div>
+            <div className="mt-3 text-xl font-bold text-slate-900">{isAdmin ? '관리자' : isApproved ? '승인된 회원' : '승인 대기'}</div>
+          </div>
+        </div>
+
+        <div className="mt-6 flex flex-wrap gap-3">
+          <button
+            type="button"
+            onClick={handleLogout}
+            className="rounded-2xl border border-slate-300 bg-white px-5 py-3 text-sm font-semibold text-slate-800 shadow-sm transition hover:border-red-300 hover:text-red-700"
+          >
+            로그아웃
+          </button>
+          {isAdmin ? (
+            <button
+              type="button"
+              onClick={() => navigate('/admin/approvals')}
+              className="rounded-2xl bg-blue-700 px-5 py-3 text-sm font-semibold text-white shadow-lg shadow-blue-700/20 transition hover:bg-blue-800"
+            >
+              회원 승인 관리
+            </button>
+          ) : null}
+        </div>
+      </SectionShell>
+    )
+  }
+
   function StudyWithJeongsiPage() {
-    const subjectOptions: StudySubject[] = ['국어', '수학', '영어', '탐구1', '탐구2', '한국사']
-    const [studySeconds, setStudySeconds] = useState(0)
-    const [isStudyRunning, setIsStudyRunning] = useState(false)
-    const [selectedStudySubject, setSelectedStudySubject] = useState<StudySubject>('국어')
-    const [timerMessage, setTimerMessage] = useState('')
-    const [leaderboard, setLeaderboard] = useState<StudyTimerStatusRow[]>([])
-    const [leaderboardLoading, setLeaderboardLoading] = useState(true)
-    const timerIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
-    const syncIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
-
-    async function persistTimerState(nextSeconds: number, nextRunning: boolean, nextSubject: StudySubject) {
-      if (!supabase || !currentUserId) return
-      const { error } = await supabase.from('study_timer_status').upsert(
-        {
-          user_id: currentUserId,
-          username: currentUsername || currentUserEmail || 'user',
-          name: currentName || null,
-          current_seconds: nextSeconds,
-          is_running: nextRunning,
-          current_subject: nextSubject,
-          updated_at: new Date().toISOString(),
-        },
-        { onConflict: 'user_id' },
-      )
-      if (error) throw error
-    }
-
-    async function fetchLeaderboard() {
-      if (!supabase) {
-        setLeaderboardLoading(false)
-        setTimerMessage('Supabase가 연결되지 않아 실시간 타이머를 불러올 수 없습니다.')
-        return
-      }
-      const { data, error } = await supabase
-        .from('study_timer_status')
-        .select('user_id, username, name, current_seconds, is_running, updated_at, current_subject')
-        .order('current_seconds', { ascending: false })
-        .order('updated_at', { ascending: true })
-        .limit(12)
-
-      if (error) {
-        setTimerMessage('리더보드를 불러오지 못했습니다: ' + error.message)
-      } else {
-        setLeaderboard((data ?? []) as StudyTimerStatusRow[])
-      }
-      setLeaderboardLoading(false)
-    }
-
-    useEffect(() => {
-      void fetchLeaderboard()
-    }, [currentUserId])
-
-    useEffect(() => {
-      if (!supabase || !currentUserId) return
-      let cancelled = false
-
-      async function bootstrapOwnTimer() {
-        const { data, error } = await supabase
-          .from('study_timer_status')
-          .select('current_seconds, is_running, current_subject')
-          .eq('user_id', currentUserId)
-          .maybeSingle<StudyTimerStatusRow>()
-
-        if (cancelled) return
-        if (error) {
-          setTimerMessage('내 타이머 상태를 불러오지 못했습니다: ' + error.message)
-          return
-        }
-        if (data) {
-          setStudySeconds(data.current_seconds ?? 0)
-          setIsStudyRunning(Boolean(data.is_running))
-          setSelectedStudySubject((data.current_subject as StudySubject | null) ?? '국어')
-        } else {
-          try {
-            await persistTimerState(0, false, '국어')
-          } catch (persistError) {
-            const message = persistError instanceof Error ? persistError.message : '알 수 없는 오류가 발생했습니다.'
-            setTimerMessage('내 타이머를 초기화하지 못했습니다: ' + message)
-          }
-        }
-      }
-
-      void bootstrapOwnTimer()
-      return () => {
-        cancelled = true
-      }
-    }, [currentUserId])
-
-    useEffect(() => {
-      if (timerIntervalRef.current) clearInterval(timerIntervalRef.current)
-      if (!isStudyRunning) return
-      timerIntervalRef.current = setInterval(() => setStudySeconds((prev) => prev + 1), 1000)
-      return () => {
-        if (timerIntervalRef.current) clearInterval(timerIntervalRef.current)
-      }
-    }, [isStudyRunning])
-
-    useEffect(() => {
-      if (syncIntervalRef.current) clearInterval(syncIntervalRef.current)
-      if (!supabase || !currentUserId) return
-
-      const sync = async () => {
-        try {
-          await persistTimerState(studySeconds, isStudyRunning, selectedStudySubject)
-          await fetchLeaderboard()
-        } catch (error) {
-          const message = error instanceof Error ? error.message : '알 수 없는 오류가 발생했습니다.'
-          setTimerMessage('타이머 상태를 동기화하지 못했습니다: ' + message)
-        }
-      }
-
-      void sync()
-      syncIntervalRef.current = setInterval(() => {
-        void sync()
-      }, 5000)
-
-      return () => {
-        if (syncIntervalRef.current) clearInterval(syncIntervalRef.current)
-      }
-    }, [currentUserId, studySeconds, isStudyRunning, selectedStudySubject])
+    const maxSubjectSeconds = Math.max(...Object.values(subjectSeconds), 1)
+    const selectedUser = studyLeaderboard.find((row) => row.user_id === selectedLeaderboardUserId) ?? null
+    const selectedUserSubjectSeconds = normalizeSubjectSeconds(selectedUser?.subject_seconds)
 
     async function handleStartStudyTimer() {
       if (!isLoggedIn || !currentUserId) {
-        setTimerMessage('로그인 후에만 타이머를 사용할 수 있습니다.')
+        setStudySyncMessage('로그인 후 이용할 수 있어.')
         return
       }
-      setTimerMessage('')
-      setIsStudyRunning(true)
+
+      const nextRunning = true
+      setStudyRunning(nextRunning)
       try {
-        await persistTimerState(studySeconds, true, selectedStudySubject)
-        await fetchLeaderboard()
+        await persistStudyTimerState({
+          currentSeconds: studySeconds,
+          isRunning: nextRunning,
+          currentSubject: currentStudySubject,
+          subjectTotals: subjectSeconds,
+        })
+        await fetchStudyLeaderboard()
+        setStudySyncMessage('')
       } catch (error) {
         const message = error instanceof Error ? error.message : '알 수 없는 오류가 발생했습니다.'
-        setTimerMessage('타이머를 시작하지 못했습니다: ' + message)
+        setStudySyncMessage(`타이머 상태를 동기화하지 못했습니다: ${message}`)
       }
     }
 
     async function handlePauseStudyTimer() {
-      setIsStudyRunning(false)
+      const nextRunning = false
+      setStudyRunning(nextRunning)
       try {
-        await persistTimerState(studySeconds, false, selectedStudySubject)
-        await fetchLeaderboard()
+        await persistStudyTimerState({
+          currentSeconds: studySeconds,
+          isRunning: nextRunning,
+          currentSubject: currentStudySubject,
+          subjectTotals: subjectSeconds,
+        })
+        await fetchStudyLeaderboard()
+        setStudySyncMessage('')
       } catch (error) {
         const message = error instanceof Error ? error.message : '알 수 없는 오류가 발생했습니다.'
-        setTimerMessage('타이머를 일시정지하지 못했습니다: ' + message)
+        setStudySyncMessage(`타이머 상태를 동기화하지 못했습니다: ${message}`)
       }
     }
 
     async function handleResetStudyTimer() {
-      setIsStudyRunning(false)
+      const empty = createEmptySubjectSeconds()
+      setStudyRunning(false)
       setStudySeconds(0)
+      setSubjectSeconds(empty)
       try {
-        await persistTimerState(0, false, selectedStudySubject)
-        await fetchLeaderboard()
+        await persistStudyTimerState({
+          currentSeconds: 0,
+          isRunning: false,
+          currentSubject: currentStudySubject,
+          subjectTotals: empty,
+        })
+        await fetchStudyLeaderboard()
+        setStudySyncMessage('')
       } catch (error) {
         const message = error instanceof Error ? error.message : '알 수 없는 오류가 발생했습니다.'
-        setTimerMessage('타이머를 초기화하지 못했습니다: ' + message)
+        setStudySyncMessage(`타이머 상태를 동기화하지 못했습니다: ${message}`)
       }
     }
 
-    async function handleStudySubjectChange(nextSubject: StudySubject) {
-      setSelectedStudySubject(nextSubject)
+    async function handleSubjectChange(subject: (typeof studySubjectOptions)[number]) {
+      setCurrentStudySubject(subject)
       try {
-        await persistTimerState(studySeconds, isStudyRunning, nextSubject)
-        await fetchLeaderboard()
+        await persistStudyTimerState({
+          currentSeconds: studySeconds,
+          isRunning: studyRunning,
+          currentSubject: subject,
+          subjectTotals: subjectSeconds,
+        })
+        await fetchStudyLeaderboard()
+        setStudySyncMessage('')
       } catch (error) {
         const message = error instanceof Error ? error.message : '알 수 없는 오류가 발생했습니다.'
-        setTimerMessage('현재 공부 과목을 바꾸지 못했습니다: ' + message)
+        setStudySyncMessage(`타이머 상태를 동기화하지 못했습니다: ${message}`)
       }
     }
-
-    const leaderboardRows = leaderboard.filter((row) => row.user_id !== currentUserId)
-    const liveStudyingCount = leaderboard.filter((row) => row.is_running).length
 
     return (
-      <SectionShell eyebrow="SERVICE" title="study with 정시" description="열품타처럼 내 공부 시간을 재고, 다른 사람의 실시간 타이머와 현재 공부 과목을 함께 보는 테스트 버전이야." wide>
-        <div className="grid gap-6 xl:grid-cols-[1.15fr_0.85fr]">
-          <div className="rounded-[1.8rem] border border-slate-200 bg-white p-6 shadow-sm md:p-8">
-            <div className="flex flex-col gap-5 md:flex-row md:items-start md:justify-between">
-              <div>
-                <div className="text-sm font-semibold tracking-[0.18em] text-blue-700">MY TIMER</div>
-                <h2 className="mt-3 text-4xl font-black tracking-tight text-slate-900 md:text-5xl">{formatStudyDuration(studySeconds)}</h2>
-                <p className="mt-3 text-sm leading-relaxed text-slate-600">현재 공부 과목은 <span className="font-semibold text-slate-900">{selectedStudySubject}</span>로 표시돼.</p>
+      <SectionShell eyebrow="SERVICE" title="study with 정시" description="타이머를 켜고 지금 공부 중인 과목과 누적 시간을 같이 관리하는 페이지야." wide>
+        <div className="grid gap-6 lg:grid-cols-[1.2fr_0.8fr]">
+          <div className="space-y-6 rounded-[1.75rem] border border-slate-200 bg-slate-50 p-6">
+            <div className="rounded-[1.5rem] bg-slate-950 px-6 py-8 text-white shadow-lg">
+              <div className="text-sm font-semibold tracking-[0.18em] text-blue-200">LIVE TIMER</div>
+              <div className="mt-4 text-5xl font-black tracking-tight md:text-6xl">{formatStudyDuration(studySeconds)}</div>
+              <div className="mt-3 flex flex-wrap items-center gap-3 text-sm text-slate-300">
+                <span className="rounded-full border border-white/15 px-3 py-1">현재 과목 · {currentStudySubject}</span>
+                <span className={`rounded-full px-3 py-1 ${studyRunning ? 'bg-emerald-500/20 text-emerald-200' : 'bg-white/10 text-slate-300'}`}>{studyRunning ? '공부 중' : '일시정지'}</span>
               </div>
-              <div className={`inline-flex rounded-full px-4 py-2 text-sm font-semibold ${isStudyRunning ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-600'}`}>{isStudyRunning ? '공부 중' : '대기 중'}</div>
+              <div className="mt-6 flex flex-wrap gap-3">
+                <button onClick={handleStartStudyTimer} className="rounded-2xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white hover:bg-blue-500">시작</button>
+                <button onClick={handlePauseStudyTimer} className="rounded-2xl border border-white/15 px-5 py-3 text-sm font-semibold text-white hover:bg-white/10">일시정지</button>
+                <button onClick={handleResetStudyTimer} className="rounded-2xl border border-red-300/30 px-5 py-3 text-sm font-semibold text-red-100 hover:bg-red-400/10">초기화</button>
+              </div>
+              {studySyncMessage && <p className="mt-4 text-sm text-amber-200">{studySyncMessage}</p>}
             </div>
 
-            <div className="mt-8 grid gap-3 sm:grid-cols-3">
-              <button onClick={() => void handleStartStudyTimer()} className="rounded-2xl bg-blue-700 px-5 py-3 text-sm font-semibold text-white transition hover:bg-blue-800">시작</button>
-              <button onClick={() => void handlePauseStudyTimer()} className="rounded-2xl border border-slate-300 bg-white px-5 py-3 text-sm font-semibold text-slate-800 transition hover:border-blue-300 hover:text-blue-700">일시정지</button>
-              <button onClick={() => void handleResetStudyTimer()} className="rounded-2xl border border-slate-300 bg-slate-50 px-5 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-100">초기화</button>
-            </div>
-
-            <div className="mt-8 rounded-[1.6rem] border border-slate-200 bg-slate-50 p-5">
+            <div className="rounded-[1.5rem] border border-slate-200 bg-white p-5 shadow-sm">
               <div className="text-sm font-semibold tracking-[0.16em] text-slate-500">현재 공부 과목 설정</div>
-              <div className="mt-4 grid gap-3 sm:grid-cols-3">
-                {subjectOptions.map((subject) => (
-                  <button key={subject} onClick={() => void handleStudySubjectChange(subject)} className={`rounded-2xl px-4 py-3 text-sm font-semibold transition ${selectedStudySubject === subject ? 'bg-blue-700 text-white shadow-lg shadow-blue-700/15' : 'border border-slate-300 bg-white text-slate-700 hover:border-blue-300 hover:text-blue-700'}`}>
-                    {subject}
-                  </button>
-                ))}
+              <div className="mt-4 flex flex-wrap gap-3">
+                {studySubjectOptions.map((subject) => {
+                  const active = subject === currentStudySubject
+                  return (
+                    <button
+                      key={subject}
+                      onClick={() => handleSubjectChange(subject)}
+                      className={`rounded-2xl px-4 py-2.5 text-sm font-semibold transition ${active ? 'bg-blue-700 text-white shadow-lg shadow-blue-700/20' : 'border border-slate-200 bg-slate-50 text-slate-700 hover:border-blue-200 hover:text-blue-700'}`}
+                    >
+                      {subject}
+                    </button>
+                  )
+                })}
+              </div>
+
+              <div className="mt-8 space-y-4">
+                <div className="text-sm font-semibold tracking-[0.16em] text-slate-500">과목별 공부 시간</div>
+                {studySubjectOptions.map((subject) => {
+                  const seconds = subjectSeconds[subject] ?? 0
+                  const width = `${Math.max((seconds / maxSubjectSeconds) * 100, seconds > 0 ? 8 : 0)}%`
+                  return (
+                    <div key={subject} className="space-y-2">
+                      <div className="flex items-center justify-between text-sm font-semibold text-slate-700">
+                        <span>{subject}</span>
+                        <span>{formatStudyDuration(seconds)}</span>
+                      </div>
+                      <div className="h-3 overflow-hidden rounded-full bg-slate-100">
+                        <div className={`h-full rounded-full ${subject === currentStudySubject ? 'bg-blue-700' : 'bg-slate-400'}`} style={{ width }} />
+                      </div>
+                    </div>
+                  )
+                })}
               </div>
             </div>
-
-            {timerMessage && <div className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">{timerMessage}</div>}
           </div>
 
-          <div className="space-y-5">
-            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-1">
-              <div className="rounded-[1.75rem] border border-slate-200 bg-slate-50 p-5">
-                <div className="text-sm font-semibold tracking-[0.18em] text-blue-700">LIVE STATUS</div>
-                <div className="mt-3 text-3xl font-black tracking-tight text-slate-900">{liveStudyingCount}명</div>
-                <div className="mt-2 text-sm text-slate-600">지금 study with 정시에서 타이머를 돌리는 인원</div>
-              </div>
-              <div className="rounded-[1.75rem] border border-slate-200 bg-slate-50 p-5">
-                <div className="text-sm font-semibold tracking-[0.18em] text-blue-700">MY SUBJECT</div>
-                <div className="mt-3 text-3xl font-black tracking-tight text-slate-900">{selectedStudySubject}</div>
-                <div className="mt-2 text-sm text-slate-600">내가 지금 설정한 공부 과목</div>
-              </div>
-            </div>
-
-            <div className="rounded-[1.8rem] border border-slate-200 bg-white p-6 shadow-sm">
-              <div className="flex items-center justify-between gap-4">
+          <div className="space-y-6">
+            <div className="rounded-[1.5rem] border border-slate-200 bg-white p-5 shadow-sm">
+              <div className="flex items-center justify-between gap-3">
                 <div>
-                  <div className="text-sm font-semibold tracking-[0.18em] text-blue-700">LIVE BOARD</div>
-                  <h3 className="mt-2 text-2xl font-black tracking-tight text-slate-900">다른 사람 타이머</h3>
+                  <div className="text-sm font-semibold tracking-[0.16em] text-slate-500">LIVE BOARD</div>
+                  <h2 className="mt-2 text-2xl font-black tracking-tight text-slate-900">실시간 공부 리더보드</h2>
                 </div>
-                <button onClick={() => void fetchLeaderboard()} className="rounded-xl border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 transition hover:border-blue-300 hover:text-blue-700">새로고침</button>
+                <button onClick={() => void fetchStudyLeaderboard()} className="rounded-2xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 hover:border-blue-200 hover:text-blue-700">새로고침</button>
               </div>
+
               <div className="mt-5 space-y-3">
-                {leaderboardLoading ? (
-                  <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-5 text-sm text-slate-500">리더보드를 불러오는 중이야.</div>
-                ) : leaderboardRows.length === 0 ? (
-                  <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-5 text-sm text-slate-500">아직 표시할 다른 사람 타이머가 없어.</div>
+                {studyLeaderboard.length === 0 ? (
+                  <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-6 text-center text-sm text-slate-500">아직 표시할 타이머가 없어.</div>
                 ) : (
-                  leaderboardRows.map((row, index) => {
+                  studyLeaderboard.map((row, index) => {
+                    const displayId = row.username || 'unknown'
+                    const rank = index + 1
                     const isTop = index === 0
                     return (
-                      <div key={row.user_id} className={`rounded-[1.5rem] border px-4 py-4 transition ${isTop ? 'border-amber-300 bg-[linear-gradient(135deg,#fff7ed_0%,#fffbeb_100%)] shadow-[0_10px_30px_rgba(245,158,11,0.15)]' : 'border-slate-200 bg-slate-50'}`}>
+                      <button
+                        key={row.user_id}
+                        onClick={() => setSelectedLeaderboardUserId(row.user_id)}
+                        className={`w-full rounded-[1.4rem] border px-4 py-4 text-left transition ${isTop ? 'border-amber-300 bg-amber-50 shadow-lg shadow-amber-100' : 'border-slate-200 bg-white hover:border-blue-200 hover:bg-blue-50/40'}`}
+                      >
                         <div className="flex items-start justify-between gap-4">
                           <div>
-                            <div className={`text-sm font-semibold tracking-[0.16em] ${isTop ? 'text-amber-700' : 'text-blue-700'}`}>{isTop ? 'LEADER · 1위' : `RANK · ${index + 1}위`}</div>
-                            <div className="mt-2 text-xl font-black tracking-tight text-slate-900">{row.name || row.username || '익명 사용자'}</div>
-                            <div className="mt-2 text-sm text-slate-600">현재 과목: <span className="font-semibold text-slate-900">{row.current_subject ?? '미설정'}</span></div>
+                            <div className={`inline-flex rounded-full px-2.5 py-1 text-xs font-black ${isTop ? 'bg-amber-400 text-amber-950' : 'bg-slate-100 text-slate-600'}`}>#{rank}</div>
+                            <div className={`mt-3 text-lg font-black tracking-tight ${isTop ? 'text-amber-950' : 'text-slate-900'}`}>{displayId}</div>
+                            <div className="mt-1 text-sm text-slate-500">{row.current_subject || '과목 미설정'} · {row.is_running ? '공부 중' : '대기 중'}</div>
                           </div>
-                          <div className="text-right">
-                            <div className={`text-2xl font-black tracking-tight ${isTop ? 'text-amber-700' : 'text-slate-900'}`}>{formatStudyDuration(row.current_seconds ?? 0)}</div>
-                            <div className={`mt-2 text-sm font-semibold ${row.is_running ? 'text-emerald-600' : 'text-slate-500'}`}>{row.is_running ? '공부 중' : '잠시 멈춤'}</div>
-                          </div>
+                          <div className={`text-right text-2xl font-black tracking-tight ${isTop ? 'text-amber-700' : 'text-blue-700'}`}>{formatStudyDuration(Number(row.current_seconds ?? 0))}</div>
                         </div>
-                      </div>
+                      </button>
                     )
                   })
                 )}
               </div>
+            </div>
+
+            <div className="rounded-[1.5rem] border border-slate-200 bg-white p-5 shadow-sm">
+              <div className="text-sm font-semibold tracking-[0.16em] text-slate-500">상세 보기</div>
+              {selectedUser ? (
+                <div className="mt-4 space-y-4">
+                  <div>
+                    <div className="text-2xl font-black tracking-tight text-slate-900">{selectedUser.username || 'unknown'}</div>
+                    <div className="mt-1 text-sm text-slate-500">총 공부 시간 · {formatStudyDuration(Number(selectedUser.current_seconds ?? 0))}</div>
+                  </div>
+                  <div className="space-y-3">
+                    {studySubjectOptions.map((subject) => {
+                      const seconds = selectedUserSubjectSeconds[subject] ?? 0
+                      const maxSelected = Math.max(...Object.values(selectedUserSubjectSeconds), 1)
+                      return (
+                        <div key={subject} className="space-y-2">
+                          <div className="flex items-center justify-between text-sm font-semibold text-slate-700">
+                            <span>{subject}</span>
+                            <span>{formatStudyDuration(seconds)}</span>
+                          </div>
+                          <div className="h-3 overflow-hidden rounded-full bg-slate-100">
+                            <div className="h-full rounded-full bg-blue-700" style={{ width: `${Math.max((seconds / maxSelected) * 100, seconds > 0 ? 8 : 0)}%` }} />
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              ) : (
+                <div className="mt-4 rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-6 text-sm text-slate-500">리더보드에서 사람을 누르면 과목별 공부 시간을 볼 수 있어.</div>
+              )}
             </div>
           </div>
         </div>
@@ -1810,7 +1951,7 @@ function AppShell() {
 
           <div className="hidden items-center gap-3 md:flex">
             {isLoggedIn ? (
-              <button onClick={handleLogout} className="inline-flex items-center gap-3 rounded-2xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-800 shadow-sm transition hover:border-blue-300 hover:text-blue-700">
+              <button onClick={() => navigate('/mypage')} className="inline-flex items-center gap-3 rounded-2xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-800 shadow-sm transition hover:border-blue-300 hover:text-blue-700">
                 <span className="flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 bg-slate-50 text-sm">👤</span>
                 <span>{topRightLabel}</span>
               </button>
@@ -1854,9 +1995,14 @@ function AppShell() {
                 ))}
               </div>
               {isLoggedIn ? (
-                <button onClick={handleLogout} className="mt-2 rounded-2xl border border-slate-300 px-4 py-3 text-left text-sm font-semibold text-slate-800">
-                  {topRightLabel} · 로그아웃
-                </button>
+                <>
+                  <button onClick={() => navigate('/mypage')} className="mt-2 rounded-2xl border border-slate-300 px-4 py-3 text-left text-sm font-semibold text-slate-800">
+                    {topRightLabel}
+                  </button>
+                  <button onClick={handleLogout} className="rounded-2xl border border-slate-300 px-4 py-3 text-left text-sm font-semibold text-slate-800">
+                    로그아웃
+                  </button>
+                </>
               ) : (
                 <button onClick={() => navigate('/login')} className="mt-2 rounded-2xl bg-blue-700 px-4 py-3 text-left text-sm font-semibold text-white">
                   로그인
@@ -1882,6 +2028,8 @@ function AppShell() {
           <Route path="/service/fund" element={<FundPage />} />
           <Route path="/service/goods" element={<GoodsPage />} />
           <Route path="/service/photo-booth" element={<PhotoBoothPage />} />
+          <Route path="/mypage" element={<MyPagePage />} />
+          <Route path="/admin/approvals" element={<SectionShell eyebrow="ADMIN" title="회원 승인 관리" description="현재 파일에는 승인 관리 UI가 포함되어 있지 않아. 기존 승인 페이지 로직을 이어서 붙이면 돼."><div className="rounded-[1.5rem] border border-slate-200 bg-slate-50 p-6 text-slate-600">승인 관리 페이지 준비 중</div></SectionShell>} />
           <Route path="/notice" element={<NoticePage />} />
           <Route path="/notice/community" element={<CommunityPage />} />
           <Route path="/notice/press" element={<PressPage />} />
