@@ -309,6 +309,12 @@ function AppShell() {
   const [studySyncMessage, setStudySyncMessage] = useState('')
   const [studyLeaderboard, setStudyLeaderboard] = useState<StudyTimerRow[]>([])
   const [selectedLeaderboardUserId, setSelectedLeaderboardUserId] = useState<string | null>(null)
+  const studySnapshotRef = useRef({
+    currentSeconds: 0,
+    isRunning: false,
+    currentSubject: '국어',
+    subjectTotals: createEmptySubjectSeconds(),
+  })
 
   const [loginEmail, setLoginEmail] = useState('')
   const [loginPassword, setLoginPassword] = useState('')
@@ -753,6 +759,15 @@ function AppShell() {
   }, [studyRunning, currentStudySubject])
 
   useEffect(() => {
+    studySnapshotRef.current = {
+      currentSeconds: studySeconds,
+      isRunning: studyRunning,
+      currentSubject: currentStudySubject,
+      subjectTotals: subjectSeconds,
+    }
+  }, [currentStudySubject, studyRunning, studySeconds, subjectSeconds])
+
+  useEffect(() => {
     if (!supabase || !isLoggedIn || !currentUserId) return
 
     let cancelled = false
@@ -761,19 +776,31 @@ function AppShell() {
       try {
         const { data, error } = await supabase
           .from('study_timer_status')
-          .select('current_seconds, is_running, current_subject, subject_seconds')
+          .select('current_seconds, is_running, current_subject, subject_seconds, updated_at')
           .eq('user_id', currentUserId)
           .maybeSingle()
 
         if (error) throw error
         if (cancelled || !data) return
 
-        setStudySeconds(Number(data.current_seconds ?? 0))
-        setStudyRunning(Boolean(data.is_running))
-        if (typeof data.current_subject === 'string' && studySubjectOptions.includes(data.current_subject as (typeof studySubjectOptions)[number])) {
-          setCurrentStudySubject(data.current_subject as (typeof studySubjectOptions)[number])
+        const restoredSubject =
+          typeof data.current_subject === 'string' && studySubjectOptions.includes(data.current_subject as (typeof studySubjectOptions)[number])
+            ? (data.current_subject as (typeof studySubjectOptions)[number])
+            : '국어'
+        const restoredRunning = Boolean(data.is_running)
+        const restoredSeconds = Math.max(Math.floor(Number(data.current_seconds ?? 0)), 0)
+        const restoredSubjectSeconds = normalizeSubjectSeconds(data.subject_seconds)
+        const updatedAt = data.updated_at ? new Date(data.updated_at).getTime() : Number.NaN
+        const elapsedSeconds = restoredRunning && Number.isFinite(updatedAt) ? Math.max(Math.floor((Date.now() - updatedAt) / 1000), 0) : 0
+        const nextSubjectSeconds = {
+          ...restoredSubjectSeconds,
+          [restoredSubject]: (restoredSubjectSeconds[restoredSubject] ?? 0) + elapsedSeconds,
         }
-        setSubjectSeconds(normalizeSubjectSeconds(data.subject_seconds))
+
+        setStudySeconds(restoredSeconds + elapsedSeconds)
+        setStudyRunning(restoredRunning)
+        setCurrentStudySubject(restoredSubject)
+        setSubjectSeconds(nextSubjectSeconds)
       } catch (error) {
         console.error('study timer bootstrap error:', error)
       }
@@ -790,12 +817,7 @@ function AppShell() {
     if (!supabase || !isLoggedIn || !currentUserId) return
 
     const sync = window.setInterval(() => {
-      void persistStudyTimerState({
-        currentSeconds: studySeconds,
-        isRunning: studyRunning,
-        currentSubject: currentStudySubject,
-        subjectTotals: subjectSeconds,
-      }).then(() => {
+      void persistStudyTimerState(studySnapshotRef.current).then(() => {
         setStudySyncMessage('')
       }).catch((error) => {
         const message = error instanceof Error ? error.message : '알 수 없는 오류가 발생했습니다.'
@@ -804,7 +826,7 @@ function AppShell() {
     }, 5000)
 
     return () => window.clearInterval(sync)
-  }, [currentStudySubject, currentUserId, isLoggedIn, studyRunning, studySeconds, subjectSeconds])
+  }, [currentUserId, isLoggedIn])
 
   useEffect(() => {
     if (!supabase || !isLoggedIn) return
@@ -2385,17 +2407,10 @@ function AppShell() {
 
           <div className="hidden items-center gap-3 md:flex">
             {isLoggedIn ? (
-              <>
-                {isAdmin && (
-                  <button onClick={() => navigate('/admin/approvals')} className="rounded-2xl bg-blue-700 px-5 py-3 text-sm font-semibold text-white shadow-lg shadow-blue-700/20 transition hover:bg-blue-800">
-                    회원가입 승인
-                  </button>
-                )}
-                <button onClick={() => navigate('/mypage')} className="inline-flex items-center gap-3 rounded-2xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-800 shadow-sm transition hover:border-blue-300 hover:text-blue-700">
-                  <span className="flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 bg-slate-50 text-sm">👤</span>
-                  <span>{topRightLabel}</span>
-                </button>
-              </>
+              <button onClick={() => navigate('/mypage')} className="inline-flex items-center gap-3 rounded-2xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-800 shadow-sm transition hover:border-blue-300 hover:text-blue-700">
+                <span className="flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 bg-slate-50 text-sm">👤</span>
+                <span>{topRightLabel}</span>
+              </button>
             ) : (
               <button onClick={() => navigate('/login')} className="rounded-2xl bg-blue-700 px-5 py-3 text-sm font-semibold text-white shadow-lg shadow-blue-700/20 transition hover:bg-blue-800">
                 로그인
@@ -2437,11 +2452,6 @@ function AppShell() {
               </div>
               {isLoggedIn ? (
                 <div className="mt-2 flex flex-col gap-2">
-                  {isAdmin && (
-                    <button onClick={() => navigate('/admin/approvals')} className="rounded-2xl bg-blue-700 px-4 py-3 text-left text-sm font-semibold text-white">
-                      회원가입 승인
-                    </button>
-                  )}
                   <button onClick={() => navigate('/mypage')} className="rounded-2xl border border-slate-300 px-4 py-3 text-left text-sm font-semibold text-slate-800">
                     {topRightLabel}
                   </button>
