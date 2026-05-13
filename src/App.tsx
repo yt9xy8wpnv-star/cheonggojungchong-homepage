@@ -1201,11 +1201,17 @@ function AppShell() {
   function HomePage() {
     return (
       <div className="space-y-8">
-        <section className="mx-auto max-w-6xl overflow-hidden rounded-[2.5rem] border border-slate-200 bg-white shadow-sm">
-          <div className="grid gap-0 lg:grid-cols-[1.25fr_0.75fr]">
-            <div className="relative px-8 py-14 md:px-14 md:py-20">
-              <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,_rgba(37,99,235,0.08),_transparent_42%)]" />
-              <div className="relative max-w-3xl">
+        <section className="relative mx-auto max-w-6xl overflow-hidden rounded-[2.5rem] border border-slate-200 bg-white shadow-sm">
+          <img
+            src="/main-logo-flag.png"
+            alt=""
+            className="absolute inset-y-0 right-0 h-full w-full object-cover object-center opacity-20 md:w-[66%] md:object-right md:opacity-45 lg:opacity-60"
+          />
+          <div className="absolute inset-0 bg-[linear-gradient(90deg,#ffffff_0%,#ffffff_46%,rgba(255,255,255,0.78)_66%,rgba(255,255,255,0.38)_100%)]" />
+          <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,_rgba(37,99,235,0.1),_transparent_42%)]" />
+          <div className="relative grid gap-0 lg:grid-cols-[1.25fr_0.75fr]">
+            <div className="px-8 py-14 md:px-14 md:py-20">
+              <div className="max-w-3xl">
                 <div className="inline-flex items-center gap-3 rounded-full border border-blue-100 bg-blue-50 px-4 py-2 text-sm font-semibold text-blue-700">
                   <span className="flex h-7 w-7 items-center justify-center rounded-full bg-blue-700 text-white">정</span>
                   CHEONGGO JEONGCHONG
@@ -1236,19 +1242,10 @@ function AppShell() {
 	                  )}
 	                </div>
 
-	                <div className="mt-10 overflow-hidden rounded-[1.75rem] border border-blue-100 bg-slate-50 p-4 shadow-sm">
-	                  <div className="rounded-[1.35rem] bg-white px-4 py-5">
-	                    <img
-	                      src="/main-logo-flag.png"
-	                      alt="청고정총 깃발"
-	                      className="mx-auto h-auto max-h-64 w-full max-w-xl object-contain"
-	                    />
-	                  </div>
-	                </div>
-	              </div>
-	            </div>
+		              </div>
+		            </div>
 
-	            <div className="border-t border-slate-200 bg-slate-50 p-6 lg:border-l lg:border-t-0 lg:p-8">
+		            <div className="border-t border-slate-200 bg-slate-50/85 p-6 backdrop-blur-sm lg:border-l lg:border-t-0 lg:bg-white/70 lg:p-8">
 	              <div className="grid gap-4">
 	                {homeStudyStats.map(([eyebrow, value, desc], index) => (
 	                  <div
