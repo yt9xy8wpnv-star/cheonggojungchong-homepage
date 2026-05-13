@@ -1201,65 +1201,43 @@ function AppShell() {
   function HomePage() {
     return (
       <div className="space-y-8">
-        <section className="relative mx-auto max-w-6xl overflow-hidden rounded-[2.5rem] border border-slate-200 bg-white shadow-sm">
+        <section className="relative mx-auto min-h-[640px] max-w-6xl overflow-hidden rounded-[2.5rem] border border-slate-200 bg-slate-100 shadow-sm md:min-h-[720px]">
           <img
             src="/main-logo-flag.png"
-            alt=""
-            className="absolute inset-y-0 right-0 h-full w-full object-cover object-center opacity-20 md:w-[66%] md:object-right md:opacity-45 lg:opacity-60"
+            alt="청고정총 깃발"
+            className="absolute inset-0 h-full w-full object-cover object-center"
           />
-          <div className="absolute inset-0 bg-[linear-gradient(90deg,#ffffff_0%,#ffffff_46%,rgba(255,255,255,0.78)_66%,rgba(255,255,255,0.38)_100%)]" />
-          <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,_rgba(37,99,235,0.1),_transparent_42%)]" />
-          <div className="relative grid gap-0 lg:grid-cols-[1.25fr_0.75fr]">
-            <div className="px-8 py-14 md:px-14 md:py-20">
-              <div className="max-w-3xl">
-                <div className="inline-flex items-center gap-3 rounded-full border border-blue-100 bg-blue-50 px-4 py-2 text-sm font-semibold text-blue-700">
-                  <span className="flex h-7 w-7 items-center justify-center rounded-full bg-blue-700 text-white">정</span>
-                  CHEONGGO JEONGCHONG
-                </div>
-                <h1 className="mt-6 text-5xl font-black leading-[1.05] tracking-tight text-slate-950 md:text-7xl">
-                  청주고정시파이터총연맹
-                </h1>
-                <div className="mt-5 text-2xl font-black tracking-[0.32em] text-blue-700">청.고.정.총</div>
-                <p className="mt-8 max-w-2xl text-lg leading-relaxed text-slate-600">
-                  정시를 향해 함께 공부하고, 서로를 자극하며, 끝까지 흐름을 지켜내는 청주고 학습 공동체.
-                  기록보다 실력, 포장보다 축적, 흔들림보다 지속을 선택하는 사람들의 공간.
-                </p>
-
-	                <div className="mt-10 flex flex-wrap items-center gap-4">
-	                  <button
-	                    onClick={() => navigate('/jeongsi-info')}
-                    className="rounded-2xl bg-blue-700 px-6 py-3 text-sm font-semibold text-white shadow-lg shadow-blue-700/20 transition hover:bg-blue-800"
-                  >
-                    All About 정시 보기
-                  </button>
-                  {!isLoggedIn && (
-                    <button
-                      onClick={() => navigate('/login')}
-                      className="rounded-2xl border border-slate-300 bg-white px-6 py-3 text-sm font-semibold text-slate-800 transition hover:border-blue-300 hover:text-blue-700"
-                    >
-                      로그인하기
-	                    </button>
-	                  )}
-	                </div>
-
-		              </div>
-		            </div>
-
-		            <div className="border-t border-slate-200 bg-slate-50/85 p-6 backdrop-blur-sm lg:border-l lg:border-t-0 lg:bg-white/70 lg:p-8">
-	              <div className="grid gap-4">
-	                {homeStudyStats.map(([eyebrow, value, desc], index) => (
-	                  <div
-	                    key={eyebrow}
-                    className={`rounded-[1.75rem] border p-6 shadow-sm ${index === 1 ? 'border-blue-700 bg-blue-700 text-white' : 'border-slate-200 bg-white text-slate-900'}`}
-                  >
-                    <div className={`text-sm font-semibold tracking-[0.22em] ${index === 1 ? 'text-blue-100' : 'text-blue-700'}`}>{eyebrow}</div>
-                    <div className="mt-4 text-4xl font-black tracking-tight">{value}</div>
-                    <div className={`mt-3 text-sm leading-relaxed ${index === 1 ? 'text-blue-100' : 'text-slate-600'}`}>{desc}</div>
-                  </div>
-                ))}
+          <div className="absolute inset-0 bg-[linear-gradient(90deg,rgba(255,255,255,0.96)_0%,rgba(255,255,255,0.82)_34%,rgba(255,255,255,0.2)_64%,rgba(255,255,255,0)_100%)]" />
+          <div className="absolute inset-0 bg-[linear-gradient(0deg,rgba(255,255,255,0.94)_0%,rgba(255,255,255,0.58)_28%,rgba(255,255,255,0)_62%)]" />
+          <div className="relative flex min-h-[640px] items-end px-8 py-12 md:min-h-[720px] md:px-14 md:py-16">
+            <div className="max-w-4xl">
+              <div className="inline-flex items-center gap-3 rounded-full border border-blue-100 bg-white/70 px-4 py-2 text-sm font-semibold text-blue-700 shadow-sm backdrop-blur">
+                <span className="flex h-7 w-7 items-center justify-center rounded-full bg-blue-700 text-white">정</span>
+                CHEONGGO JEONGCHONG
               </div>
+              <h1 className="mt-6 text-5xl font-black leading-[1.05] tracking-tight text-slate-950 md:text-7xl">
+                청주고정시파이터총연맹
+              </h1>
+              <div className="mt-5 text-2xl font-black tracking-[0.32em] text-blue-700">청.고.정.총</div>
+              <p className="mt-8 max-w-2xl text-lg leading-relaxed text-slate-600">
+                정시를 향해 함께 공부하고, 서로를 자극하며, 끝까지 흐름을 지켜내는 청주고 학습 공동체.
+                기록보다 실력, 포장보다 축적, 흔들림보다 지속을 선택하는 사람들의 공간.
+              </p>
             </div>
           </div>
+        </section>
+
+        <section className="mx-auto grid max-w-6xl gap-4 md:grid-cols-3">
+          {homeStudyStats.map(([eyebrow, value, desc], index) => (
+            <div
+              key={eyebrow}
+              className={`rounded-[1.75rem] border p-6 shadow-sm ${index === 1 ? 'border-blue-700 bg-blue-700 text-white' : 'border-slate-200 bg-white text-slate-900'}`}
+            >
+              <div className={`text-sm font-semibold tracking-[0.22em] ${index === 1 ? 'text-blue-100' : 'text-blue-700'}`}>{eyebrow}</div>
+              <div className="mt-4 text-4xl font-black tracking-tight">{value}</div>
+              <div className={`mt-3 text-sm leading-relaxed ${index === 1 ? 'text-blue-100' : 'text-slate-600'}`}>{desc}</div>
+            </div>
+          ))}
         </section>
 
         <section className="mx-auto max-w-6xl overflow-hidden rounded-[2.5rem] border border-slate-200 bg-white shadow-sm">
