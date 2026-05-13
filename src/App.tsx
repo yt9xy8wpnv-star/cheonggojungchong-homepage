@@ -438,6 +438,7 @@ function AppShell() {
   const [scoreForm, setScoreForm] = useState<ScoreForm>(initialScoreForm)
   const [scoreMessage, setScoreMessage] = useState('')
   const [goalUniversitySearch, setGoalUniversitySearch] = useState('')
+  const [goalUniversityDropdownOpen, setGoalUniversityDropdownOpen] = useState(false)
   const [goalPlan, setGoalPlan] = useState<GoalPlan | null>(null)
   const [goalDraftUniversity, setGoalDraftUniversity] = useState('')
   const [goalDraftDepartment, setGoalDraftDepartment] = useState('')
@@ -474,6 +475,7 @@ function AppShell() {
     setSelectedLeaderboardUserId(null)
     setLeaderboardPreviewUserId(null)
     setGoalUniversitySearch('')
+    setGoalUniversityDropdownOpen(false)
     setGoalPlan(null)
     setGoalDraftUniversity('')
     setGoalDraftDepartment('')
@@ -1105,6 +1107,7 @@ function AppShell() {
         if (!data) {
           setGoalPlan(null)
           setGoalUniversitySearch('')
+          setGoalUniversityDropdownOpen(false)
           setGoalDraftUniversity('')
           setGoalDraftDepartment('')
           setGoalDraftGrades(initialGoalGrades)
@@ -1114,6 +1117,7 @@ function AppShell() {
         const plan = goalPlanFromRow(data)
         setGoalPlan(plan)
         setGoalUniversitySearch(plan.university)
+        setGoalUniversityDropdownOpen(false)
         setGoalDraftUniversity(plan.university)
         setGoalDraftDepartment(plan.department)
         setGoalDraftGrades(plan.grades)
@@ -1464,32 +1468,33 @@ function AppShell() {
                 정시를 향해 함께 공부하고, 서로를 자극하며, 끝까지 흐름을 지켜내는 청주고 학습 공동체.
                 기록보다 실력, 포장보다 축적, 흔들림보다 지속을 선택하는 사람들의 공간.
               </p>
-              {goalPlan && (
-                <div className="mt-8 max-w-3xl rounded-[1.5rem] border border-blue-100 bg-white/80 p-5 shadow-sm backdrop-blur">
-                  <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
-                    {goalLogo && (
-                      <img src={goalLogo} alt={`${goalPlan.university} 로고`} className="h-16 w-16 rounded-2xl border border-slate-100 bg-white object-contain p-2" />
-                    )}
-                    <div>
-                      <div className="text-xl font-black tracking-tight text-slate-950">
-                        {(currentUsername || currentName || currentUserEmail.split('@')[0] || '회원')}님 {goalPlan.university}의 {goalPlan.department}학과 입학을 응원합니다!
-                      </div>
-                      <div className="mt-2 text-sm font-semibold text-blue-700">TARGET GRADE</div>
-                    </div>
-                  </div>
-                  <div className="mt-4 grid gap-2 sm:grid-cols-5">
-                    {goalGradeRows.map(([label, subject, grade]) => (
-                      <div key={label} className="rounded-2xl border border-slate-200 bg-white px-3 py-3">
-                        <div className="text-xs font-semibold text-slate-500">{label} · {subject}</div>
-                        <div className="mt-1 text-lg font-black text-slate-900">{grade ? `${grade}등급` : '-'}</div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
             </div>
           </div>
         </section>
+
+        {goalPlan && (
+          <section className="mx-auto max-w-6xl rounded-[2rem] border border-blue-100 bg-white p-6 shadow-sm md:p-8">
+            <div className="flex flex-col gap-5 md:flex-row md:items-center">
+              {goalLogo && (
+                <img src={goalLogo} alt={`${goalPlan.university} 로고`} className="h-24 w-24 rounded-[1.5rem] border border-slate-100 bg-white object-contain p-3 shadow-sm md:h-28 md:w-28" />
+              )}
+              <div className="min-w-0 flex-1">
+                <div className="text-sm font-semibold tracking-[0.18em] text-blue-700">TARGET UNIVERSITY</div>
+                <div className="mt-2 text-2xl font-black tracking-tight text-slate-950 md:text-3xl">
+                  {(currentUsername || currentName || currentUserEmail.split('@')[0] || '회원')}님, {goalPlan.university}의 {goalPlan.department} 합격을 응원합니다!
+                </div>
+              </div>
+            </div>
+            <div className="mt-5 grid gap-2 sm:grid-cols-5">
+              {goalGradeRows.map(([label, subject, grade]) => (
+                <div key={label} className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3">
+                  <div className="text-xs font-semibold text-slate-500">{label} · {subject}</div>
+                  <div className="mt-1 text-lg font-black text-slate-900">{grade ? `${grade}등급` : '-'}</div>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
 
         <section className="mx-auto grid max-w-6xl gap-4 md:grid-cols-3">
           {homeStudyStats.map(([eyebrow, value, desc], index) => (
@@ -2195,11 +2200,20 @@ function AppShell() {
                   <label className="mb-2 block text-sm font-semibold text-slate-700">대학 검색</label>
                   <input
                     value={goalUniversitySearch}
-                    onChange={(e) => setGoalUniversitySearch(e.target.value)}
+                    onFocus={() => {
+                      if (goalUniversitySearch.trim()) setGoalUniversityDropdownOpen(true)
+                    }}
+                    onBlur={() => {
+                      window.setTimeout(() => setGoalUniversityDropdownOpen(false), 120)
+                    }}
+                    onChange={(e) => {
+                      setGoalUniversitySearch(e.target.value)
+                      setGoalUniversityDropdownOpen(true)
+                    }}
                     className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none transition focus:border-blue-400 focus:bg-white"
                     placeholder="예: 서울대학교"
                   />
-                  {goalUniversitySearch.trim() && (
+                  {goalUniversityDropdownOpen && goalUniversitySearch.trim() && (
                     <div className="absolute left-0 right-0 top-full z-40 mt-3 max-h-56 overflow-y-auto rounded-2xl border border-slate-200 bg-white shadow-xl">
                       {universityMatches.length === 0 ? (
                         <div className="px-4 py-4 text-sm text-slate-500">검색 결과가 없어.</div>
@@ -2209,9 +2223,12 @@ function AppShell() {
                           return (
                             <button
                               key={entry.university}
-                              onClick={() => {
+                              type="button"
+                              onMouseDown={(event) => {
+                                event.preventDefault()
                                 setGoalDraftUniversity(entry.university)
                                 setGoalUniversitySearch(entry.university)
+                                setGoalUniversityDropdownOpen(false)
                                 setGoalDraftDepartment('')
                               }}
                               className={`flex w-full items-center gap-3 border-b border-slate-100 px-4 py-3 text-left text-sm font-semibold transition last:border-b-0 hover:bg-blue-50 ${goalDraftUniversity === entry.university ? 'bg-blue-50 text-blue-700' : 'text-slate-700'}`}
