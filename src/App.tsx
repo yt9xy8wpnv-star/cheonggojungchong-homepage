@@ -2190,8 +2190,30 @@ function AppShell() {
 
   function LocationPage() {
     return (
-      <SectionShell eyebrow="ABOUT" title="찾아 오시는 길" description="청고정총 관련 공간이나 오프라인 안내를 연결하는 페이지야.">
-        <div className="rounded-[1.5rem] border border-slate-200 bg-slate-50 p-6 text-slate-600">지도와 위치 안내 콘텐츠를 여기에 연결할 수 있어.</div>
+      <SectionShell eyebrow="ABOUT" title="찾아 오시는 길" description="청주고등학교 위치와 주변 방향을 확인할 수 있는 안내 페이지야." wide>
+        <div className="space-y-6">
+          <div className="rounded-[1.5rem] border border-slate-200 bg-slate-50 p-6 md:p-7">
+            <div className="text-sm font-semibold tracking-[0.16em] text-blue-700">ADDRESS</div>
+            <div className="mt-3 text-2xl font-black tracking-tight text-slate-900">청주고등학교</div>
+            <div className="mt-3 text-base leading-relaxed text-slate-700">
+              (우:28573) 충청북도 청주시 흥덕구 사직대로 79
+            </div>
+          </div>
+
+          <div className="overflow-hidden rounded-[1.5rem] border border-slate-200 bg-white shadow-sm">
+            <div className="border-b border-slate-200 bg-slate-50 px-6 py-5 md:px-7">
+              <div className="text-sm font-semibold tracking-[0.16em] text-blue-700">LOCATION MAP</div>
+              <div className="mt-2 text-xl font-black tracking-tight text-slate-900">약도</div>
+            </div>
+            <div className="bg-white p-3 md:p-5">
+              <img
+                src="/location-map.png"
+                alt="청주고등학교 약도"
+                className="w-full rounded-[1.1rem] border border-slate-100 object-contain"
+              />
+            </div>
+          </div>
+        </div>
       </SectionShell>
     )
   }
