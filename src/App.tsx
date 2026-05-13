@@ -13,6 +13,10 @@ type ProfileRow = {
   is_approved: boolean
 }
 
+type ApprovalProfileRow = ProfileRow & {
+  id: string
+}
+
 type SignupSubjectSelections = {
   korean: string
   math: string
@@ -293,6 +297,10 @@ function AppShell() {
   const [showProfilePasswordConfirm, setShowProfilePasswordConfirm] = useState(false)
   const [isAdmin, setIsAdmin] = useState(false)
   const [isApproved, setIsApproved] = useState(false)
+  const [approvalProfiles, setApprovalProfiles] = useState<ApprovalProfileRow[]>([])
+  const [approvalLoading, setApprovalLoading] = useState(false)
+  const [approvalMessage, setApprovalMessage] = useState('')
+  const [approvingProfileId, setApprovingProfileId] = useState<string | null>(null)
 
   const [studySeconds, setStudySeconds] = useState(0)
   const [studyRunning, setStudyRunning] = useState(false)
@@ -342,6 +350,9 @@ function AppShell() {
     setProfileEditMessage('')
     setIsAdmin(false)
     setIsApproved(false)
+    setApprovalProfiles([])
+    setApprovalMessage('')
+    setApprovingProfileId(null)
     setStudySeconds(0)
     setStudyRunning(false)
     setCurrentStudySubject('국어')
@@ -872,6 +883,12 @@ function AppShell() {
     })
   }, [displayStudyLeaderboard])
 
+  useEffect(() => {
+    if (!isAdmin || location.pathname !== '/admin/approvals') return
+
+    void fetchApprovalProfiles()
+  }, [isAdmin, location.pathname])
+
   function formatJoinedDate(value: string) {
     if (!value) return '-'
     const date = new Date(value)
@@ -946,6 +963,55 @@ function AppShell() {
       setProfileEditMessage(`프로필 수정 실패: ${message}`)
     } finally {
       setProfileSaving(false)
+    }
+  }
+
+  async function fetchApprovalProfiles() {
+    if (!supabase || !isLoggedIn || !isAdmin) return
+
+    setApprovalLoading(true)
+    setApprovalMessage('')
+    try {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('id, username, name, grade, class_no, student_no, created_at, is_admin, is_approved')
+        .eq('is_approved', false)
+        .order('created_at', { ascending: false })
+
+      if (error) throw error
+
+      setApprovalProfiles((data ?? []) as ApprovalProfileRow[])
+    } catch (error) {
+      const message = typeof error === 'object' && error !== null && 'message' in error ? String((error as { message?: unknown }).message ?? '알 수 없는 오류') : '알 수 없는 오류'
+      setApprovalMessage(`승인 대기 회원을 불러오지 못했습니다: ${message}`)
+    } finally {
+      setApprovalLoading(false)
+    }
+  }
+
+  async function handleApproveProfile(profileId: string) {
+    if (!supabase || !isLoggedIn || !isAdmin) {
+      setApprovalMessage('관리자만 회원을 승인할 수 있습니다.')
+      return
+    }
+
+    setApprovingProfileId(profileId)
+    setApprovalMessage('')
+    try {
+      const { error } = await supabase
+        .from('profiles')
+        .update({ is_approved: true })
+        .eq('id', profileId)
+
+      if (error) throw error
+
+      setApprovalProfiles((prev) => prev.filter((profile) => profile.id !== profileId))
+      setApprovalMessage('회원 승인이 완료되었습니다.')
+    } catch (error) {
+      const message = typeof error === 'object' && error !== null && 'message' in error ? String((error as { message?: unknown }).message ?? '알 수 없는 오류') : '알 수 없는 오류'
+      setApprovalMessage(`회원 승인 실패: ${message}`)
+    } finally {
+      setApprovingProfileId(null)
     }
   }
 
@@ -1758,6 +1824,11 @@ function AppShell() {
             <button onClick={handleLogout} className="rounded-2xl border border-slate-300 px-5 py-3 text-sm font-semibold text-slate-800 transition hover:border-red-300 hover:text-red-700">
               로그아웃
             </button>
+            {isAdmin && (
+              <button onClick={() => navigate('/admin/approvals')} className="rounded-2xl bg-blue-700 px-5 py-3 text-sm font-semibold text-white transition hover:bg-blue-800">
+                회원가입 승인
+              </button>
+            )}
           </div>
 
           <div className="space-y-6 rounded-[1.75rem] border border-slate-200 bg-white p-6 shadow-sm">
@@ -1811,6 +1882,90 @@ function AppShell() {
             <button onClick={handleProfileSave} disabled={profileSaving} className="rounded-2xl bg-blue-700 px-6 py-3 text-sm font-semibold text-white shadow-lg shadow-blue-700/20 transition hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-60">
               {profileSaving ? '저장 중...' : '프로필 수정 저장'}
             </button>
+          </div>
+        </div>
+      </SectionShell>
+    )
+  }
+
+  function AdminApprovalsPage() {
+    if (!isLoggedIn) {
+      return <Navigate to="/login" replace />
+    }
+
+    if (!isAdmin) {
+      return (
+        <SectionShell eyebrow="ADMIN" title="회원가입 승인" description="관리자 권한이 있는 계정만 접근할 수 있는 페이지야.">
+          <div className="rounded-[1.5rem] border border-slate-200 bg-slate-50 p-6 text-slate-600">관리자 권한이 확인되지 않았습니다.</div>
+        </SectionShell>
+      )
+    }
+
+    return (
+      <SectionShell eyebrow="ADMIN" title="회원가입 승인" description="승인 대기 중인 회원을 확인하고 가입을 승인할 수 있는 관리자 화면이야." wide>
+        <div className="space-y-5">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="text-sm font-semibold text-slate-500">
+              승인 대기 회원 <span className="text-blue-700">{approvalProfiles.length}</span>명
+            </div>
+            <button
+              onClick={fetchApprovalProfiles}
+              disabled={approvalLoading}
+              className="rounded-2xl border border-slate-300 bg-white px-5 py-3 text-sm font-semibold text-slate-800 transition hover:border-blue-300 hover:text-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {approvalLoading ? '새로고침 중...' : '목록 새로고침'}
+            </button>
+          </div>
+
+          {approvalMessage && (
+            <div className={`rounded-2xl border px-4 py-3 text-sm font-medium ${approvalMessage.includes('완료') ? 'border-blue-100 bg-blue-50 text-blue-700' : 'border-red-100 bg-red-50 text-red-600'}`}>
+              {approvalMessage}
+            </div>
+          )}
+
+          <div className="overflow-hidden rounded-[1.5rem] border border-slate-200 bg-white">
+            {approvalLoading && approvalProfiles.length === 0 ? (
+              <div className="p-6 text-sm text-slate-500">승인 대기 회원을 불러오는 중...</div>
+            ) : approvalProfiles.length === 0 ? (
+              <div className="p-6 text-sm text-slate-500">현재 승인 대기 중인 회원이 없습니다.</div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="min-w-full text-left">
+                  <thead className="bg-slate-100 text-slate-700">
+                    <tr className="border-b border-slate-200">
+                      <th className="px-5 py-4 text-sm font-bold">아이디</th>
+                      <th className="px-5 py-4 text-sm font-bold">이름</th>
+                      <th className="px-5 py-4 text-sm font-bold">학번</th>
+                      <th className="px-5 py-4 text-sm font-bold">가입일</th>
+                      <th className="px-5 py-4 text-sm font-bold">처리</th>
+                    </tr>
+                  </thead>
+                  <tbody className="text-slate-700">
+                    {approvalProfiles.map((profile, index) => (
+                      <tr key={profile.id} className={index !== approvalProfiles.length - 1 ? 'border-b border-slate-200' : ''}>
+                        <td className="px-5 py-4 text-sm font-bold text-slate-900">{profile.username || '-'}</td>
+                        <td className="px-5 py-4 text-sm">{profile.name || '-'}</td>
+                        <td className="px-5 py-4 text-sm">
+                          {[profile.grade, profile.class_no, profile.student_no].every((value) => value !== null)
+                            ? `${profile.grade}학년 ${profile.class_no}반 ${profile.student_no}번`
+                            : '-'}
+                        </td>
+                        <td className="px-5 py-4 text-sm">{formatJoinedDate(profile.created_at ?? '')}</td>
+                        <td className="px-5 py-4">
+                          <button
+                            onClick={() => handleApproveProfile(profile.id)}
+                            disabled={approvingProfileId === profile.id}
+                            className="rounded-2xl bg-blue-700 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-60"
+                          >
+                            {approvingProfileId === profile.id ? '승인 중...' : '승인'}
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
         </div>
       </SectionShell>
@@ -2230,10 +2385,17 @@ function AppShell() {
 
           <div className="hidden items-center gap-3 md:flex">
             {isLoggedIn ? (
-              <button onClick={() => navigate('/mypage')} className="inline-flex items-center gap-3 rounded-2xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-800 shadow-sm transition hover:border-blue-300 hover:text-blue-700">
-                <span className="flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 bg-slate-50 text-sm">👤</span>
-                <span>{topRightLabel}</span>
-              </button>
+              <>
+                {isAdmin && (
+                  <button onClick={() => navigate('/admin/approvals')} className="rounded-2xl bg-blue-700 px-5 py-3 text-sm font-semibold text-white shadow-lg shadow-blue-700/20 transition hover:bg-blue-800">
+                    회원가입 승인
+                  </button>
+                )}
+                <button onClick={() => navigate('/mypage')} className="inline-flex items-center gap-3 rounded-2xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-800 shadow-sm transition hover:border-blue-300 hover:text-blue-700">
+                  <span className="flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 bg-slate-50 text-sm">👤</span>
+                  <span>{topRightLabel}</span>
+                </button>
+              </>
             ) : (
               <button onClick={() => navigate('/login')} className="rounded-2xl bg-blue-700 px-5 py-3 text-sm font-semibold text-white shadow-lg shadow-blue-700/20 transition hover:bg-blue-800">
                 로그인
@@ -2275,6 +2437,11 @@ function AppShell() {
               </div>
               {isLoggedIn ? (
                 <div className="mt-2 flex flex-col gap-2">
+                  {isAdmin && (
+                    <button onClick={() => navigate('/admin/approvals')} className="rounded-2xl bg-blue-700 px-4 py-3 text-left text-sm font-semibold text-white">
+                      회원가입 승인
+                    </button>
+                  )}
                   <button onClick={() => navigate('/mypage')} className="rounded-2xl border border-slate-300 px-4 py-3 text-left text-sm font-semibold text-slate-800">
                     {topRightLabel}
                   </button>
@@ -2308,6 +2475,7 @@ function AppShell() {
           <Route path="/service/goods" element={<GoodsPage />} />
           <Route path="/service/photo-booth" element={<PhotoBoothPage />} />
           <Route path="/mypage" element={<MyPage />} />
+          <Route path="/admin/approvals" element={<AdminApprovalsPage />} />
           <Route path="/notice" element={<NoticePage />} />
           <Route path="/notice/community" element={<CommunityPage />} />
           <Route path="/notice/press" element={<PressPage />} />
