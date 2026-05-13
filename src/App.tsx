@@ -1668,7 +1668,7 @@ function AppShell() {
     )
   }
 
-  function LoginRequiredPage() {
+  function renderLoginRequiredPage() {
     return (
       <SectionShell eyebrow="LOGIN REQUIRED" title="로그인이 필요합니다" description="이 기능은 청고정총 회원만 이용할 수 있어. 로그인 후 다시 이용해줘.">
         <div className="rounded-[1.5rem] border border-slate-200 bg-slate-50 p-6">
@@ -1687,12 +1687,12 @@ function AppShell() {
     )
   }
 
-  function RequireLogin({ children }: { children: ReactNode }) {
+  function requireLogin(renderChildren: () => ReactNode) {
     if (!isLoggedIn) {
-      return <LoginRequiredPage />
+      return renderLoginRequiredPage()
     }
 
-    return <>{children}</>
+    return <>{renderChildren()}</>
   }
 
   const loginPageElement = (
@@ -2977,24 +2977,24 @@ function AppShell() {
 
       <main className="px-4 py-8 md:px-8 md:py-10">
         <Routes>
-          <Route path="/" element={<HomePage />} />
-          <Route path="/about/chairman" element={<ChairmanPage />} />
-          <Route path="/about/organization" element={<OrganizationPage />} />
-          <Route path="/about/symbol" element={<SymbolPage />} />
-          <Route path="/about/location" element={<LocationPage />} />
+          <Route path="/" element={HomePage()} />
+          <Route path="/about/chairman" element={ChairmanPage()} />
+          <Route path="/about/organization" element={OrganizationPage()} />
+          <Route path="/about/symbol" element={SymbolPage()} />
+          <Route path="/about/location" element={LocationPage()} />
           <Route path="/login" element={loginPageElement} />
           <Route path="/signup" element={signupPageElement} />
-          <Route path="/jeongsi-info" element={<RequireLogin><JeongsiPage /></RequireLogin>} />
-          <Route path="/jeongsi-info/may-full-service" element={<RequireLogin><MayFullServicePage /></RequireLogin>} />
-          <Route path="/service/study-with-jeongsi" element={<RequireLogin><StudyWithJeongsiPage /></RequireLogin>} />
-          <Route path="/service/fund" element={<RequireLogin><FundPage /></RequireLogin>} />
-          <Route path="/service/goods" element={<RequireLogin><GoodsPage /></RequireLogin>} />
-          <Route path="/service/photo-booth" element={<RequireLogin><PhotoBoothPage /></RequireLogin>} />
-          <Route path="/mypage" element={<RequireLogin>{MyPage()}</RequireLogin>} />
-          <Route path="/admin/approvals" element={<RequireLogin><AdminApprovalsPage /></RequireLogin>} />
-          <Route path="/notice" element={<NoticePage />} />
-          <Route path="/notice/community" element={<RequireLogin><CommunityPage /></RequireLogin>} />
-          <Route path="/notice/press" element={<PressPage />} />
+          <Route path="/jeongsi-info" element={requireLogin(() => JeongsiPage())} />
+          <Route path="/jeongsi-info/may-full-service" element={requireLogin(() => MayFullServicePage())} />
+          <Route path="/service/study-with-jeongsi" element={requireLogin(() => StudyWithJeongsiPage())} />
+          <Route path="/service/fund" element={requireLogin(() => FundPage())} />
+          <Route path="/service/goods" element={requireLogin(() => GoodsPage())} />
+          <Route path="/service/photo-booth" element={requireLogin(() => PhotoBoothPage())} />
+          <Route path="/mypage" element={requireLogin(() => MyPage())} />
+          <Route path="/admin/approvals" element={requireLogin(() => AdminApprovalsPage())} />
+          <Route path="/notice" element={NoticePage()} />
+          <Route path="/notice/community" element={requireLogin(() => CommunityPage())} />
+          <Route path="/notice/press" element={PressPage()} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </main>
