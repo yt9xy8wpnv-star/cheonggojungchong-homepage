@@ -2065,9 +2065,18 @@ function AppShell() {
             <div className="space-y-6">
               <div className="overflow-hidden rounded-[1.9rem] border border-slate-200 bg-white shadow-sm">
                 <div className="bg-[linear-gradient(135deg,#3b82f6_0%,#2563eb_52%,#1d4ed8_100%)] px-6 py-7 text-white md:px-8 md:py-8">
-                  <div className="text-sm font-semibold tracking-[0.18em] text-blue-100">PROFILE</div>
-                  <div className="mt-4 text-4xl font-black tracking-tight md:text-5xl">장주헌</div>
-                  <div className="mt-3 text-lg font-medium text-blue-100">청주고정시파이터총연합 1대 회장</div>
+                  <div className="flex flex-col gap-6 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <div className="text-sm font-semibold tracking-[0.18em] text-blue-100">PROFILE</div>
+                      <div className="mt-4 text-4xl font-black tracking-tight md:text-5xl">장주헌</div>
+                      <div className="mt-3 text-lg font-medium text-blue-100">청주고정시파이터총연합 1대 회장</div>
+                    </div>
+                    <img
+                      src="/chairman.png"
+                      alt="장주헌 회장"
+                      className="h-28 w-28 rounded-[1.4rem] border border-white/25 bg-white/10 object-cover shadow-xl shadow-blue-950/20 sm:h-32 sm:w-32"
+                    />
+                  </div>
                 </div>
                 <div className="px-6 py-6 md:px-8">
                   <div className="grid gap-4 sm:grid-cols-2">
@@ -2463,9 +2472,45 @@ function AppShell() {
   }
 
   function GoodsPage() {
+    const goodsItems = [
+      ['청고정총 티셔츠', '21,000원', '/goods1.jpeg', false],
+      ['청고정총 수능샤프', '5,000원', '/goods2.jpeg', false],
+      ['청고정총 머그컵', '미정', '/goods3.png', true],
+      ['청고정총 필통', '미정', '/goods4.png', true],
+    ] as const
+
     return (
-      <SectionShell eyebrow="SERVICE" title="굿즈샵" description="청고정총 굿즈와 상징 아이템을 확인하는 페이지야.">
-        <div className="rounded-[1.5rem] border border-slate-200 bg-slate-50 p-6 text-slate-600">굿즈샵 콘텐츠를 여기에 연결할 수 있어.</div>
+      <SectionShell eyebrow="SERVICE" title="굿즈샵" description="청고정총 굿즈와 상징 아이템을 확인하는 공간이야." wide>
+        <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-4">
+          {goodsItems.map(([name, price, image, comingSoon]) => (
+            <div key={name} className="overflow-hidden rounded-[1.5rem] border border-slate-200 bg-white shadow-sm transition hover:-translate-y-1 hover:border-blue-200 hover:shadow-lg">
+              <div className="relative aspect-square bg-slate-50">
+                <img
+                  src={image}
+                  alt={name}
+                  className="h-full w-full object-cover"
+                />
+                {comingSoon && (
+                  <div className="absolute inset-0 flex items-center justify-center bg-slate-950/55 px-5 text-center">
+                    <div className="rounded-2xl border border-white/25 bg-white/10 px-5 py-3 text-sm font-black text-white shadow-lg backdrop-blur-sm">
+                      추후 판매 예정
+                    </div>
+                  </div>
+                )}
+              </div>
+              <div className="p-5">
+                <div className="text-sm font-semibold tracking-[0.16em] text-blue-700">GOODS</div>
+                <div className="mt-3 text-xl font-black tracking-tight text-slate-900">{name}</div>
+                <div className="mt-3 flex items-center justify-between gap-3">
+                  <div className={`text-lg font-black ${comingSoon ? 'text-slate-400' : 'text-blue-700'}`}>{price}</div>
+                  <div className={`rounded-full px-3 py-1 text-xs font-bold ${comingSoon ? 'bg-slate-100 text-slate-500' : 'bg-blue-50 text-blue-700'}`}>
+                    {comingSoon ? '준비중' : '판매중'}
+                  </div>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
       </SectionShell>
     )
   }
