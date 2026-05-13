@@ -1,6 +1,7 @@
 import { createClient } from '@supabase/supabase-js'
 import { BrowserRouter, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom'
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { universityDepartments } from './data/universityDepartments'
 
 type ProfileRow = {
   username: string
@@ -37,6 +38,30 @@ type ScoreForm = {
   koreanHistory: string
   inquiry1: string
   inquiry2: string
+}
+
+type GoalGrades = {
+  korean: string
+  math: string
+  english: string
+  inquiry1: string
+  inquiry2: string
+}
+
+type GoalPlan = {
+  university: string
+  department: string
+  grades: GoalGrades
+}
+
+type GoalPlanRow = {
+  university: string
+  department: string
+  korean_grade: number | null
+  math_grade: number | null
+  english_grade: number | null
+  inquiry1_grade: number | null
+  inquiry2_grade: number | null
 }
 
 type SubjectSecondsMap = Record<string, number>
@@ -264,6 +289,62 @@ const initialScoreForm: ScoreForm = {
   inquiry2: '',
 }
 
+const initialGoalGrades: GoalGrades = {
+  korean: '',
+  math: '',
+  english: '',
+  inquiry1: '',
+  inquiry2: '',
+}
+
+const universityLogoMap: Record<string, string> = {
+  서울대학교: '/Seoul_univ.png',
+  연세대학교: '/Yonsei_univ.png',
+  고려대학교: '/korea_univ.png',
+  서강대학교: '/sogang_univ.png',
+  성균관대학교: '/sungkyunkwan_univ.png',
+  한양대학교: '/hanyang_univ.png',
+  중앙대학교: '/chungang_univ.png',
+  경희대학교: '/kyunghee_univ.png',
+  한국외국어대학교: '/foreign_univ.png',
+  서울시립대학교: '/seoul_city_univ.png',
+  건국대학교: '/konkuk_univ.png',
+  동국대학교: '/dongguk_univ.png',
+  홍익대학교: '/hongik_univ.png',
+  한국과학기술원: '/kaist.png',
+  포항공과대학교: '/postech.png',
+  대구경북과학기술원: '/dgist.png',
+  울산과학기술원: '/unist.png',
+  광주과학기술원: '/gist.png',
+}
+
+function getUniversityLogo(university: string) {
+  return universityLogoMap[university] ?? null
+}
+
+function formatGoalGrade(value: number | null | undefined) {
+  return typeof value === 'number' && Number.isFinite(value) ? String(value) : ''
+}
+
+function parseGoalGrade(value: string) {
+  const parsed = Number(value)
+  return Number.isInteger(parsed) && parsed >= 1 && parsed <= 9 ? parsed : null
+}
+
+function goalPlanFromRow(row: GoalPlanRow): GoalPlan {
+  return {
+    university: row.university,
+    department: row.department,
+    grades: {
+      korean: formatGoalGrade(row.korean_grade),
+      math: formatGoalGrade(row.math_grade),
+      english: formatGoalGrade(row.english_grade),
+      inquiry1: formatGoalGrade(row.inquiry1_grade),
+      inquiry2: formatGoalGrade(row.inquiry2_grade),
+    },
+  }
+}
+
 function SectionShell({
   eyebrow,
   title,
@@ -356,6 +437,12 @@ function AppShell() {
 
   const [scoreForm, setScoreForm] = useState<ScoreForm>(initialScoreForm)
   const [scoreMessage, setScoreMessage] = useState('')
+  const [goalUniversitySearch, setGoalUniversitySearch] = useState('')
+  const [goalPlan, setGoalPlan] = useState<GoalPlan | null>(null)
+  const [goalDraftUniversity, setGoalDraftUniversity] = useState('')
+  const [goalDraftDepartment, setGoalDraftDepartment] = useState('')
+  const [goalDraftGrades, setGoalDraftGrades] = useState<GoalGrades>(initialGoalGrades)
+  const [goalMessage, setGoalMessage] = useState('')
 
   function resetAuthState() {
     setCurrentUserId('')
@@ -386,6 +473,12 @@ function AppShell() {
     setStudyLeaderboard([])
     setSelectedLeaderboardUserId(null)
     setLeaderboardPreviewUserId(null)
+    setGoalUniversitySearch('')
+    setGoalPlan(null)
+    setGoalDraftUniversity('')
+    setGoalDraftDepartment('')
+    setGoalDraftGrades(initialGoalGrades)
+    setGoalMessage('')
   }
 
   async function loadProfile(userId: string, email: string, userMeta?: Record<string, unknown>, joinedAt?: string) {
@@ -744,6 +837,43 @@ function AppShell() {
     }
   }
 
+  async function resetCurrentUserStudyTimerState(currentSubject: string, subjectTotals: SubjectSecondsMap) {
+    if (!supabase || !currentUserId) return
+
+    const updatedAt = new Date().toISOString()
+    const payload = {
+      username: currentUsername || currentUserEmail.split('@')[0] || 'user',
+      name: currentName || null,
+      current_seconds: 0,
+      is_running: false,
+      current_subject: currentSubject,
+      subject_seconds: subjectTotals,
+      updated_at: updatedAt,
+    }
+
+    const { error } = await supabase
+      .from('study_timer_status')
+      .update(payload)
+      .eq('user_id', currentUserId)
+
+    if (error) {
+      const message = typeof error === 'object' && error !== null && 'message' in error ? String((error as { message?: unknown }).message ?? '알 수 없는 오류가 발생했습니다.') : '알 수 없는 오류가 발생했습니다.'
+      throw new Error(message)
+    }
+
+    setStudyLeaderboard((prev) =>
+      prev.map((row) =>
+        row.user_id === currentUserId
+          ? {
+              ...row,
+              ...payload,
+              user_id: currentUserId,
+            }
+          : row,
+      ),
+    )
+  }
+
   async function fetchStudyLeaderboard() {
     if (!supabase || !isLoggedIn) return
 
@@ -954,6 +1084,54 @@ function AppShell() {
     void fetchApprovalProfiles()
   }, [isAdmin, location.pathname])
 
+  useEffect(() => {
+    if (!isLoggedIn || !currentUserId) return
+
+    let cancelled = false
+
+    async function loadGoalPlan() {
+      if (!supabase) return
+
+      try {
+        const { data, error } = await supabase
+          .from('goal_plans')
+          .select('university, department, korean_grade, math_grade, english_grade, inquiry1_grade, inquiry2_grade')
+          .eq('user_id', currentUserId)
+          .maybeSingle<GoalPlanRow>()
+
+        if (cancelled) return
+        if (error) throw error
+
+        if (!data) {
+          setGoalPlan(null)
+          setGoalUniversitySearch('')
+          setGoalDraftUniversity('')
+          setGoalDraftDepartment('')
+          setGoalDraftGrades(initialGoalGrades)
+          return
+        }
+
+        const plan = goalPlanFromRow(data)
+        setGoalPlan(plan)
+        setGoalUniversitySearch(plan.university)
+        setGoalDraftUniversity(plan.university)
+        setGoalDraftDepartment(plan.department)
+        setGoalDraftGrades(plan.grades)
+      } catch (error) {
+        console.error('goal plan load error:', error)
+        if (!cancelled) {
+          setGoalMessage('목표 대학 정보를 불러오지 못했어. Supabase goal_plans 테이블과 정책을 확인해줘.')
+        }
+      }
+    }
+
+    void loadGoalPlan()
+
+    return () => {
+      cancelled = true
+    }
+  }, [currentUserId, isLoggedIn])
+
   function formatJoinedDate(value: string) {
     if (!value) return '-'
     const date = new Date(value)
@@ -1115,6 +1293,60 @@ function AppShell() {
     setScoreMessage('다음 단계에서 Supabase DB에 실제 저장하도록 연결할 예정입니다.')
   }
 
+  function handleGoalGradeChange(field: keyof GoalGrades, value: string) {
+    const normalized = value.replace(/[^1-9]/g, '').slice(0, 1)
+    setGoalDraftGrades((prev) => ({ ...prev, [field]: normalized }))
+  }
+
+  async function handleSaveGoalPlan() {
+    setGoalMessage('')
+
+    if (!isLoggedIn || !currentUserId || !supabase) {
+      setGoalMessage('로그인 후 목표 대학을 저장할 수 있어.')
+      return
+    }
+    if (!goalDraftUniversity) {
+      setGoalMessage('희망 대학을 선택해줘.')
+      return
+    }
+    if (!goalDraftDepartment) {
+      setGoalMessage('희망 학과를 선택해줘.')
+      return
+    }
+
+    try {
+      const payload = {
+        user_id: currentUserId,
+        university: goalDraftUniversity,
+        department: goalDraftDepartment,
+        korean_grade: parseGoalGrade(goalDraftGrades.korean),
+        math_grade: parseGoalGrade(goalDraftGrades.math),
+        english_grade: parseGoalGrade(goalDraftGrades.english),
+        inquiry1_grade: parseGoalGrade(goalDraftGrades.inquiry1),
+        inquiry2_grade: parseGoalGrade(goalDraftGrades.inquiry2),
+        updated_at: new Date().toISOString(),
+      }
+
+      const { error } = await supabase
+        .from('goal_plans')
+        .upsert(payload, { onConflict: 'user_id' })
+
+      if (error) throw error
+
+      const next: GoalPlan = {
+        university: goalDraftUniversity,
+        department: goalDraftDepartment,
+        grades: goalDraftGrades,
+      }
+
+      setGoalPlan(next)
+      setGoalMessage('목표 대학 정보를 저장했어.')
+    } catch (error) {
+      const message = typeof error === 'object' && error !== null && 'message' in error ? String((error as { message?: unknown }).message ?? '알 수 없는 오류') : '알 수 없는 오류'
+      setGoalMessage(`목표 대학 저장 실패: ${message}`)
+    }
+  }
+
   function openDropdownMenu(id: string) {
     if (closeDropdownTimer.current) {
       clearTimeout(closeDropdownTimer.current)
@@ -1136,7 +1368,10 @@ function AppShell() {
     if (paths.includes('/')) {
       return location.pathname === '/'
     }
-    return paths.some((path) => location.pathname === path || location.pathname.startsWith(`${path}/`))
+    return paths.some((path) => {
+      if (path === '/notice') return location.pathname === '/notice'
+      return location.pathname === path || location.pathname.startsWith(`${path}/`)
+    })
   }
 
   function DropdownNav({
@@ -1199,6 +1434,17 @@ function AppShell() {
 
 
   function HomePage() {
+    const goalLogo = goalPlan ? getUniversityLogo(goalPlan.university) : null
+    const goalGradeRows = goalPlan
+      ? [
+          ['국어', currentSubjectSelections.korean, goalPlan.grades.korean],
+          ['수학', currentSubjectSelections.math, goalPlan.grades.math],
+          ['영어', currentSubjectSelections.english, goalPlan.grades.english],
+          ['탐구1', currentSubjectSelections.inquiry1, goalPlan.grades.inquiry1],
+          ['탐구2', currentSubjectSelections.inquiry2, goalPlan.grades.inquiry2],
+        ] as const
+      : []
+
     return (
       <div className="space-y-8">
         <section className="relative mx-auto min-h-[640px] max-w-6xl overflow-hidden rounded-[2.5rem] border border-slate-200 bg-slate-100 shadow-sm md:min-h-[720px]">
@@ -1218,6 +1464,29 @@ function AppShell() {
                 정시를 향해 함께 공부하고, 서로를 자극하며, 끝까지 흐름을 지켜내는 청주고 학습 공동체.
                 기록보다 실력, 포장보다 축적, 흔들림보다 지속을 선택하는 사람들의 공간.
               </p>
+              {goalPlan && (
+                <div className="mt-8 max-w-3xl rounded-[1.5rem] border border-blue-100 bg-white/80 p-5 shadow-sm backdrop-blur">
+                  <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
+                    {goalLogo && (
+                      <img src={goalLogo} alt={`${goalPlan.university} 로고`} className="h-16 w-16 rounded-2xl border border-slate-100 bg-white object-contain p-2" />
+                    )}
+                    <div>
+                      <div className="text-xl font-black tracking-tight text-slate-950">
+                        {(currentUsername || currentName || currentUserEmail.split('@')[0] || '회원')}님 {goalPlan.university}의 {goalPlan.department}학과 입학을 응원합니다!
+                      </div>
+                      <div className="mt-2 text-sm font-semibold text-blue-700">TARGET GRADE</div>
+                    </div>
+                  </div>
+                  <div className="mt-4 grid gap-2 sm:grid-cols-5">
+                    {goalGradeRows.map(([label, subject, grade]) => (
+                      <div key={label} className="rounded-2xl border border-slate-200 bg-white px-3 py-3">
+                        <div className="text-xs font-semibold text-slate-500">{label} · {subject}</div>
+                        <div className="mt-1 text-lg font-black text-slate-900">{grade ? `${grade}등급` : '-'}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </section>
@@ -1849,6 +2118,18 @@ function AppShell() {
       ['탐구2', currentSubjectSelections.inquiry2],
       ['제2외국어', currentSubjectSelections.secondForeign],
     ] as const
+    const universityMatches = universityDepartments
+      .filter((entry) => entry.university.includes(goalUniversitySearch.trim()))
+      .slice(0, 8)
+    const selectedUniversityEntry = universityDepartments.find((entry) => entry.university === goalDraftUniversity)
+    const selectedUniversityLogo = getUniversityLogo(goalDraftUniversity)
+    const goalGradeInputs = [
+      ['국어', currentSubjectSelections.korean, 'korean'],
+      ['수학', currentSubjectSelections.math, 'math'],
+      ['영어', currentSubjectSelections.english, 'english'],
+      ['탐구1', currentSubjectSelections.inquiry1, 'inquiry1'],
+      ['탐구2', currentSubjectSelections.inquiry2, 'inquiry2'],
+    ] as Array<[string, string, keyof GoalGrades]>
 
     return (
       <SectionShell eyebrow="PROFILE" title={currentUsername || currentUserEmail || '내 정보'} description="계정 정보와 선택과목을 확인하고 수정할 수 있는 페이지야." wide>
@@ -1878,6 +2159,24 @@ function AppShell() {
               </div>
             </div>
 
+            <div className="rounded-[1.5rem] border border-slate-200 bg-slate-50 p-5">
+              <div className="text-sm font-semibold tracking-[0.16em] text-blue-700">TARGET UNIVERSITY</div>
+              <div className="mt-3 text-2xl font-black tracking-tight text-slate-900">희망 대학</div>
+              {goalPlan ? (
+                <div className="mt-4 flex items-center gap-4 rounded-2xl border border-slate-200 bg-white p-4">
+                  {getUniversityLogo(goalPlan.university) && (
+                    <img src={getUniversityLogo(goalPlan.university) ?? ''} alt={`${goalPlan.university} 로고`} className="h-14 w-14 rounded-2xl border border-slate-100 object-contain p-2" />
+                  )}
+                  <div>
+                    <div className="text-lg font-black text-slate-900">{goalPlan.university}</div>
+                    <div className="mt-1 text-sm font-semibold text-slate-500">{goalPlan.department}학과</div>
+                  </div>
+                </div>
+              ) : (
+                <div className="mt-4 rounded-2xl border border-dashed border-slate-200 bg-white px-4 py-5 text-sm text-slate-500">아직 저장된 희망 대학이 없어.</div>
+              )}
+            </div>
+
             <button onClick={handleLogout} className="rounded-2xl border border-slate-300 px-5 py-3 text-sm font-semibold text-slate-800 transition hover:border-red-300 hover:text-red-700">
               로그아웃
             </button>
@@ -1889,6 +2188,96 @@ function AppShell() {
           </div>
 
           <div className="space-y-6 rounded-[1.75rem] border border-slate-200 bg-white p-6 shadow-sm">
+            <div>
+              <div className="text-sm font-semibold tracking-[0.16em] text-slate-500">희망 대학 선택</div>
+              <div className="mt-4 space-y-4">
+                <div>
+                  <label className="mb-2 block text-sm font-semibold text-slate-700">대학 검색</label>
+                  <input
+                    value={goalUniversitySearch}
+                    onChange={(e) => {
+                      setGoalUniversitySearch(e.target.value)
+                      setGoalDraftUniversity('')
+                      setGoalDraftDepartment('')
+                    }}
+                    className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none transition focus:border-blue-400 focus:bg-white"
+                    placeholder="예: 서울대학교"
+                  />
+                  {goalUniversitySearch.trim() && (
+                    <div className="mt-3 max-h-56 overflow-y-auto rounded-2xl border border-slate-200 bg-white">
+                      {universityMatches.length === 0 ? (
+                        <div className="px-4 py-4 text-sm text-slate-500">검색 결과가 없어.</div>
+                      ) : (
+                        universityMatches.map((entry) => {
+                          const logo = getUniversityLogo(entry.university)
+                          return (
+                            <button
+                              key={entry.university}
+                              onClick={() => {
+                                setGoalDraftUniversity(entry.university)
+                                setGoalUniversitySearch(entry.university)
+                                setGoalDraftDepartment('')
+                              }}
+                              className={`flex w-full items-center gap-3 border-b border-slate-100 px-4 py-3 text-left text-sm font-semibold transition last:border-b-0 hover:bg-blue-50 ${goalDraftUniversity === entry.university ? 'bg-blue-50 text-blue-700' : 'text-slate-700'}`}
+                            >
+                              {logo && <img src={logo} alt="" className="h-9 w-9 rounded-xl border border-slate-100 object-contain p-1" />}
+                              <span>{entry.university}</span>
+                            </button>
+                          )
+                        })
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {goalDraftUniversity && (
+                  <div className="rounded-[1.5rem] border border-slate-200 bg-slate-50 p-4">
+                    <div className="flex items-center gap-3">
+                      {selectedUniversityLogo && <img src={selectedUniversityLogo} alt={`${goalDraftUniversity} 로고`} className="h-12 w-12 rounded-2xl border border-slate-100 bg-white object-contain p-2" />}
+                      <div>
+                        <div className="text-sm font-semibold text-blue-700">선택 대학</div>
+                        <div className="text-lg font-black text-slate-900">{goalDraftUniversity}</div>
+                      </div>
+                    </div>
+                    <label className="mb-2 mt-4 block text-sm font-semibold text-slate-700">학과 선택</label>
+                    <select
+                      value={goalDraftDepartment}
+                      onChange={(e) => setGoalDraftDepartment(e.target.value)}
+                      className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none transition focus:border-blue-400"
+                    >
+                      <option value="">학과를 선택해줘</option>
+                      {(selectedUniversityEntry?.departments ?? []).map((department) => (
+                        <option key={department} value={department}>{department}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+
+                <div className="rounded-[1.5rem] border border-slate-200 bg-slate-50 p-4">
+                  <div className="text-sm font-semibold tracking-[0.16em] text-blue-700">TARGET GRADE</div>
+                  <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                    {goalGradeInputs.map(([label, subject, field]) => (
+                      <div key={field} className="rounded-2xl border border-slate-200 bg-white p-3">
+                        <label className="block text-xs font-semibold text-slate-500">{label} · {subject}</label>
+                        <input
+                          value={goalDraftGrades[field]}
+                          onChange={(e) => handleGoalGradeChange(field, e.target.value)}
+                          className="mt-2 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-bold outline-none transition focus:border-blue-400 focus:bg-white"
+                          placeholder="목표 등급"
+                          inputMode="numeric"
+                        />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {goalMessage && <div className={`text-sm font-medium ${goalMessage.includes('저장했어') ? 'text-blue-700' : 'text-red-500'}`}>{goalMessage}</div>}
+                <button onClick={handleSaveGoalPlan} className="rounded-2xl bg-blue-700 px-6 py-3 text-sm font-semibold text-white shadow-lg shadow-blue-700/20 transition hover:bg-blue-800">
+                  목표 대학 저장
+                </button>
+              </div>
+            </div>
+
             <div className="text-sm font-semibold tracking-[0.16em] text-slate-500">정보 수정</div>
             <div className="space-y-4">
               <div>
@@ -2223,18 +2612,23 @@ function AppShell() {
     }
 
     async function handleResetStudyTimer() {
+      if (!isLoggedIn || !currentUserId) {
+        setStudySyncMessage('로그인 후 이용할 수 있어.')
+        return
+      }
+
       const empty = createEmptySubjectSeconds()
-      setStudyRunning(false)
-      setStudySeconds(0)
-      setSubjectSeconds(empty)
       try {
-        await persistStudyTimerState({
+        await resetCurrentUserStudyTimerState(currentStudySubject, empty)
+        setStudyRunning(false)
+        setStudySeconds(0)
+        setSubjectSeconds(empty)
+        studySnapshotRef.current = {
           currentSeconds: 0,
           isRunning: false,
           currentSubject: currentStudySubject,
           subjectTotals: empty,
-        })
-        await fetchStudyLeaderboard()
+        }
         setStudySyncMessage('')
       } catch (error) {
         const message = error instanceof Error ? error.message : '알 수 없는 오류가 발생했습니다.'
@@ -2600,7 +2994,7 @@ function AppShell() {
           <Route path="/service/fund" element={<RequireLogin><FundPage /></RequireLogin>} />
           <Route path="/service/goods" element={<RequireLogin><GoodsPage /></RequireLogin>} />
           <Route path="/service/photo-booth" element={<RequireLogin><PhotoBoothPage /></RequireLogin>} />
-          <Route path="/mypage" element={<RequireLogin><MyPage /></RequireLogin>} />
+          <Route path="/mypage" element={<RequireLogin>{MyPage()}</RequireLogin>} />
           <Route path="/admin/approvals" element={<RequireLogin><AdminApprovalsPage /></RequireLogin>} />
           <Route path="/notice" element={<NoticePage />} />
           <Route path="/notice/community" element={<RequireLogin><CommunityPage /></RequireLogin>} />
