@@ -2191,20 +2191,16 @@ function AppShell() {
             <div>
               <div className="text-sm font-semibold tracking-[0.16em] text-slate-500">희망 대학 선택</div>
               <div className="mt-4 space-y-4">
-                <div>
+                <div className="relative">
                   <label className="mb-2 block text-sm font-semibold text-slate-700">대학 검색</label>
                   <input
                     value={goalUniversitySearch}
-                    onChange={(e) => {
-                      setGoalUniversitySearch(e.target.value)
-                      setGoalDraftUniversity('')
-                      setGoalDraftDepartment('')
-                    }}
+                    onChange={(e) => setGoalUniversitySearch(e.target.value)}
                     className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none transition focus:border-blue-400 focus:bg-white"
                     placeholder="예: 서울대학교"
                   />
                   {goalUniversitySearch.trim() && (
-                    <div className="mt-3 max-h-56 overflow-y-auto rounded-2xl border border-slate-200 bg-white">
+                    <div className="absolute left-0 right-0 top-full z-40 mt-3 max-h-56 overflow-y-auto rounded-2xl border border-slate-200 bg-white shadow-xl">
                       {universityMatches.length === 0 ? (
                         <div className="px-4 py-4 text-sm text-slate-500">검색 결과가 없어.</div>
                       ) : (
