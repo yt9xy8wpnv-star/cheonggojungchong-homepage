@@ -1219,9 +1219,9 @@ function AppShell() {
                   기록보다 실력, 포장보다 축적, 흔들림보다 지속을 선택하는 사람들의 공간.
                 </p>
 
-                <div className="mt-10 flex flex-wrap items-center gap-4">
-                  <button
-                    onClick={() => navigate('/jeongsi-info')}
+	                <div className="mt-10 flex flex-wrap items-center gap-4">
+	                  <button
+	                    onClick={() => navigate('/jeongsi-info')}
                     className="rounded-2xl bg-blue-700 px-6 py-3 text-sm font-semibold text-white shadow-lg shadow-blue-700/20 transition hover:bg-blue-800"
                   >
                     All About 정시 보기
@@ -1232,11 +1232,21 @@ function AppShell() {
                       className="rounded-2xl border border-slate-300 bg-white px-6 py-3 text-sm font-semibold text-slate-800 transition hover:border-blue-300 hover:text-blue-700"
                     >
                       로그인하기
-                    </button>
-                  )}
-                </div>
-              </div>
-            </div>
+	                    </button>
+	                  )}
+	                </div>
+
+	                <div className="mt-10 overflow-hidden rounded-[1.75rem] border border-blue-100 bg-slate-50 p-4 shadow-sm">
+	                  <div className="rounded-[1.35rem] bg-white px-4 py-5">
+	                    <img
+	                      src="/main-logo-flag.png"
+	                      alt="청고정총 깃발"
+	                      className="mx-auto h-auto max-h-64 w-full max-w-xl object-contain"
+	                    />
+	                  </div>
+	                </div>
+	              </div>
+	            </div>
 
 	            <div className="border-t border-slate-200 bg-slate-50 p-6 lg:border-l lg:border-t-0 lg:p-8">
 	              <div className="grid gap-4">
