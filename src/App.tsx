@@ -131,6 +131,24 @@ function getDisplayStudySeconds(row: Pick<StudyTimerRow, 'current_seconds' | 'su
   return baseSeconds + elapsedSeconds
 }
 
+function getDisplaySubjectSeconds(row: Pick<StudyTimerRow, 'subject_seconds' | 'is_running' | 'updated_at' | 'current_subject'>) {
+  const subjectSeconds = normalizeSubjectSeconds(row.subject_seconds)
+
+  if (!row.is_running || !row.updated_at || !row.current_subject || !studySubjectOptions.includes(row.current_subject as (typeof studySubjectOptions)[number])) {
+    return subjectSeconds
+  }
+
+  const updatedAt = new Date(row.updated_at).getTime()
+  if (Number.isNaN(updatedAt)) return subjectSeconds
+
+  const elapsedSeconds = Math.max(Math.floor((Date.now() - updatedAt) / 1000), 0)
+  const subject = row.current_subject as (typeof studySubjectOptions)[number]
+  return {
+    ...subjectSeconds,
+    [subject]: (subjectSeconds[subject] ?? 0) + elapsedSeconds,
+  }
+}
+
 const cutlineRows = [
   ['국어(화법과 작문)', '100-97', '129', '96', '96-92', '125', '91'],
   ['국어(언어와 매체)', '100-94', '129', '96', '93-88', '125', '91'],
@@ -309,6 +327,7 @@ function AppShell() {
   const [studySyncMessage, setStudySyncMessage] = useState('')
   const [studyLeaderboard, setStudyLeaderboard] = useState<StudyTimerRow[]>([])
   const [selectedLeaderboardUserId, setSelectedLeaderboardUserId] = useState<string | null>(null)
+  const [leaderboardPreviewUserId, setLeaderboardPreviewUserId] = useState<string | null>(null)
   const studySnapshotRef = useRef({
     currentSeconds: 0,
     isRunning: false,
@@ -366,6 +385,7 @@ function AppShell() {
     setStudySyncMessage('')
     setStudyLeaderboard([])
     setSelectedLeaderboardUserId(null)
+    setLeaderboardPreviewUserId(null)
   }
 
   async function loadProfile(userId: string, email: string, userMeta?: Record<string, unknown>, joinedAt?: string) {
@@ -885,7 +905,7 @@ function AppShell() {
         username: typeof row.username === 'string' ? row.username.trim() : row.username,
         name: typeof row.name === 'string' ? row.name.trim() : row.name,
         current_seconds: getDisplayStudySeconds(row),
-        subject_seconds: normalizeSubjectSeconds(row.subject_seconds),
+        subject_seconds: getDisplaySubjectSeconds(row),
       }))
       .sort((a, b) => {
         const secondGap = Number(b.current_seconds ?? 0) - Number(a.current_seconds ?? 0)
@@ -896,6 +916,21 @@ function AppShell() {
         return updatedAtB - updatedAtA
       })
   }, [studyLeaderboard])
+
+  const homeStudyStats = useMemo(() => {
+    const topStudyUser = displayStudyLeaderboard[0] ?? null
+    const topStudyName = topStudyUser
+      ? String(topStudyUser.username || topStudyUser.name || 'unknown').split('@')[0]
+      : '기록 없음'
+    const runningCount = displayStudyLeaderboard.filter((row) => row.is_running).length
+    const totalSeconds = displayStudyLeaderboard.reduce((sum, row) => sum + Number(row.current_seconds ?? 0), 0)
+
+    return [
+      ['LIVE STATUS', `${runningCount}명`, '현재 study with 정시에서 공부 중인 인원'],
+      ['TOP STUDY', topStudyName, '누적 공부 시간 전체 랭킹 1위'],
+      ["TOTAL DRIVE", formatStudyDuration(totalSeconds), '회원 전체 누적 공부 시간'],
+    ] as const
+  }, [displayStudyLeaderboard])
 
   useEffect(() => {
     setSelectedLeaderboardUserId((prev) => {
@@ -1195,15 +1230,11 @@ function AppShell() {
               </div>
             </div>
 
-            <div className="border-t border-slate-200 bg-slate-50 p-6 lg:border-l lg:border-t-0 lg:p-8">
-              <div className="grid gap-4">
-                {[
-                  ['LIVE STATUS', '23명', '현재 study with 정시에서 공부 중인 인원'],
-                  ['TOP STUDY', '이승재', '누적 공부 시간 이번 주 랭킹 1위'],
-                  ["TODAY'S DRIVE", '418시간', '오늘 회원 전체 누적 공부 시간'],
-                ].map(([eyebrow, value, desc], index) => (
-                  <div
-                    key={eyebrow}
+	            <div className="border-t border-slate-200 bg-slate-50 p-6 lg:border-l lg:border-t-0 lg:p-8">
+	              <div className="grid gap-4">
+	                {homeStudyStats.map(([eyebrow, value, desc], index) => (
+	                  <div
+	                    key={eyebrow}
                     className={`rounded-[1.75rem] border p-6 shadow-sm ${index === 1 ? 'border-blue-700 bg-blue-700 text-white' : 'border-slate-200 bg-white text-slate-900'}`}
                   >
                     <div className={`text-sm font-semibold tracking-[0.22em] ${index === 1 ? 'text-blue-100' : 'text-blue-700'}`}>{eyebrow}</div>
@@ -2279,29 +2310,72 @@ function AppShell() {
               <div className="mt-5 space-y-3">
                 {displayStudyLeaderboard.length === 0 ? (
                   <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-6 text-center text-sm text-slate-500">아직 표시할 타이머가 없어.</div>
-                ) : (
-                  displayStudyLeaderboard.map((row, index) => {
-                    const displayId = (row.username || '').trim() ? String(row.username).trim() : 'unknown'
-                    const rank = index + 1
-                    const isTop = index === 0
-                    return (
-                      <button
-                        key={row.user_id}
-                        onClick={() => setSelectedLeaderboardUserId(row.user_id)}
-                        className={`w-full rounded-[1.4rem] border px-4 py-4 text-left transition ${row.user_id === selectedLeaderboardUserId ? 'ring-2 ring-blue-300' : ''} ${isTop ? 'border-amber-300 bg-amber-50 shadow-lg shadow-amber-100' : 'border-slate-200 bg-white hover:border-blue-200 hover:bg-blue-50/40'}`}
-                      >
-                        <div className="flex items-start justify-between gap-4">
-                          <div>
-                            <div className={`inline-flex rounded-full px-2.5 py-1 text-xs font-black ${isTop ? 'bg-amber-400 text-amber-950' : 'bg-slate-100 text-slate-600'}`}>#{rank}</div>
-                            <div className={`mt-3 text-lg font-black tracking-tight ${isTop ? 'text-amber-950' : 'text-slate-900'}`}>{displayId.includes('@') ? displayId.split('@')[0] : displayId}</div>
-                            <div className="mt-1 text-sm text-slate-500">{row.current_subject || '과목 미설정'} · {row.is_running ? '공부 중' : '대기 중'}</div>
-                          </div>
-                          <div className={`text-right text-2xl font-black tracking-tight ${isTop ? 'text-amber-700' : 'text-blue-700'}`}>{formatStudyDuration(Number(row.current_seconds ?? 0))}</div>
-                        </div>
-                      </button>
-                    )
-                  })
-                )}
+	                ) : (
+	                  displayStudyLeaderboard.map((row, index) => {
+	                    const displayId = (row.username || '').trim() ? String(row.username).trim() : 'unknown'
+	                    const rank = index + 1
+	                    const isTop = index === 0
+	                    const previewOpen = leaderboardPreviewUserId === row.user_id
+	                    const previewSubjectSeconds = normalizeSubjectSeconds(row.subject_seconds)
+	                    const previewMaxSubjectSeconds = Math.max(...Object.values(previewSubjectSeconds), 1)
+	                    return (
+	                      <div
+	                        key={row.user_id}
+	                        className="relative"
+	                        onMouseEnter={() => setLeaderboardPreviewUserId(row.user_id)}
+	                        onMouseLeave={() => setLeaderboardPreviewUserId(null)}
+	                      >
+	                        <button
+	                          onClick={() => {
+	                            setSelectedLeaderboardUserId(row.user_id)
+	                            setLeaderboardPreviewUserId(row.user_id)
+	                          }}
+	                          onFocus={() => setLeaderboardPreviewUserId(row.user_id)}
+	                          onBlur={() => setLeaderboardPreviewUserId(null)}
+	                          className={`w-full rounded-[1.4rem] border px-4 py-4 text-left transition ${row.user_id === selectedLeaderboardUserId ? 'ring-2 ring-blue-300' : ''} ${isTop ? 'border-amber-300 bg-amber-50 shadow-lg shadow-amber-100' : 'border-slate-200 bg-white hover:border-blue-200 hover:bg-blue-50/40'}`}
+	                        >
+	                          <div className="flex items-start justify-between gap-4">
+	                            <div>
+	                              <div className={`inline-flex rounded-full px-2.5 py-1 text-xs font-black ${isTop ? 'bg-amber-400 text-amber-950' : 'bg-slate-100 text-slate-600'}`}>#{rank}</div>
+	                              <div className={`mt-3 text-lg font-black tracking-tight ${isTop ? 'text-amber-950' : 'text-slate-900'}`}>{displayId.includes('@') ? displayId.split('@')[0] : displayId}</div>
+	                              <div className="mt-1 text-sm text-slate-500">{row.current_subject || '과목 미설정'} · {row.is_running ? '공부 중' : '대기 중'}</div>
+	                            </div>
+	                            <div className={`text-right text-2xl font-black tracking-tight ${isTop ? 'text-amber-700' : 'text-blue-700'}`}>{formatStudyDuration(Number(row.current_seconds ?? 0))}</div>
+	                          </div>
+	                        </button>
+
+	                        {previewOpen && (
+	                          <div className="absolute bottom-[calc(100%+0.55rem)] right-0 z-30 w-[min(22rem,calc(100vw-3rem))] rounded-[1.25rem] border border-slate-200 bg-white p-4 text-left shadow-2xl shadow-slate-300/50">
+	                            <div className="flex items-start justify-between gap-3">
+	                              <div>
+	                                <div className="text-xs font-semibold tracking-[0.16em] text-blue-700">STUDY DETAIL</div>
+	                                <div className="mt-1 text-lg font-black tracking-tight text-slate-900">{displayId.includes('@') ? displayId.split('@')[0] : displayId}</div>
+	                              </div>
+	                              <div className="text-right text-sm font-black text-blue-700">{formatStudyDuration(Number(row.current_seconds ?? 0))}</div>
+	                            </div>
+	                            <div className="mt-4 grid grid-cols-3 gap-2">
+	                              {studySubjectOptions.map((subject) => {
+	                                const seconds = previewSubjectSeconds[subject] ?? 0
+	                                const width = Math.max((seconds / previewMaxSubjectSeconds) * 100, seconds > 0 ? 12 : 4)
+	                                const active = subject === row.current_subject
+
+	                                return (
+	                                  <div key={subject} className="rounded-2xl border border-slate-200 bg-slate-50 p-2.5">
+	                                    <div className={`text-xs font-black ${active ? 'text-blue-700' : 'text-slate-600'}`}>{subject}</div>
+	                                    <div className="mt-2 h-1.5 rounded-full bg-white">
+	                                      <div className={`h-full rounded-full ${active ? 'bg-blue-700' : 'bg-slate-400'}`} style={{ width: `${width}%` }} />
+	                                    </div>
+	                                    <div className="mt-2 text-[11px] font-semibold text-slate-500">{formatStudyDuration(seconds)}</div>
+	                                  </div>
+	                                )
+	                              })}
+	                            </div>
+	                          </div>
+	                        )}
+	                      </div>
+	                    )
+	                  })
+	                )}
               </div>
             </div>
 
