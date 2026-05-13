@@ -2524,9 +2524,16 @@ function AppShell() {
     <div className="min-h-screen bg-slate-100">
       <header className="sticky top-0 z-40 border-b border-slate-200 bg-white/90 backdrop-blur">
         <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-5 py-4 md:px-8">
-          <button onClick={() => navigate('/')} className="text-left">
-            <div className="text-xl font-black tracking-tight text-slate-950">청고정총</div>
-            <div className="text-sm text-slate-500">청주고 정시파이터 총연맹</div>
+          <button onClick={() => navigate('/')} className="flex items-center gap-3 text-left">
+            <img
+              src="/main-logo-symbol.png"
+              alt=""
+              className="h-11 w-11 rounded-xl object-contain"
+            />
+            <div>
+              <div className="text-xl font-black tracking-tight text-slate-950">청고정총</div>
+              <div className="text-sm text-slate-500">청주고 정시파이터 총연맹</div>
+            </div>
           </button>
 
           <nav className="hidden items-center gap-8 md:flex">
