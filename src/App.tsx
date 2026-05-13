@@ -918,6 +918,14 @@ function AppShell() {
   }, [studyLeaderboard])
 
   const homeStudyStats = useMemo(() => {
+    if (!isLoggedIn) {
+      return [
+        ['LIVE STATUS', '로그인 필요', '로그인 후 현재 공부 중인 인원을 확인할 수 있어.'],
+        ['TOP STUDY', '로그인 후 확인', '로그인 후 누적 공부 시간 1위를 확인할 수 있어.'],
+        ['TOTAL DRIVE', '로그인 후 확인', '로그인 후 회원 전체 누적 공부 시간을 확인할 수 있어.'],
+      ] as const
+    }
+
     const topStudyUser = displayStudyLeaderboard[0] ?? null
     const topStudyName = topStudyUser
       ? String(topStudyUser.username || topStudyUser.name || 'unknown').split('@')[0]
@@ -930,7 +938,7 @@ function AppShell() {
       ['TOP STUDY', topStudyName, '누적 공부 시간 전체 랭킹 1위'],
       ["TOTAL DRIVE", formatStudyDuration(totalSeconds), '회원 전체 누적 공부 시간'],
     ] as const
-  }, [displayStudyLeaderboard])
+  }, [displayStudyLeaderboard, isLoggedIn])
 
   useEffect(() => {
     setSelectedLeaderboardUserId((prev) => {
@@ -1409,6 +1417,33 @@ function AppShell() {
         </SectionShell>
       </div>
     )
+  }
+
+  function LoginRequiredPage() {
+    return (
+      <SectionShell eyebrow="LOGIN REQUIRED" title="로그인이 필요합니다" description="이 기능은 청고정총 회원만 이용할 수 있어. 로그인 후 다시 이용해줘.">
+        <div className="rounded-[1.5rem] border border-slate-200 bg-slate-50 p-6">
+          <div className="text-base font-semibold text-slate-800">로그인 후 접근할 수 있는 기능입니다.</div>
+          <p className="mt-2 text-sm leading-relaxed text-slate-600">
+            단체 소개와 공지사항을 제외한 서비스는 회원 전용으로 운영됩니다.
+          </p>
+          <button
+            onClick={() => navigate('/login')}
+            className="mt-5 rounded-2xl bg-blue-700 px-6 py-3 text-sm font-semibold text-white shadow-lg shadow-blue-700/20 transition hover:bg-blue-800"
+          >
+            로그인으로 이동
+          </button>
+        </div>
+      </SectionShell>
+    )
+  }
+
+  function RequireLogin({ children }: { children: ReactNode }) {
+    if (!isLoggedIn) {
+      return <LoginRequiredPage />
+    }
+
+    return <>{children}</>
   }
 
   const loginPageElement = (
@@ -2552,16 +2587,16 @@ function AppShell() {
           <Route path="/about/location" element={<LocationPage />} />
           <Route path="/login" element={loginPageElement} />
           <Route path="/signup" element={signupPageElement} />
-          <Route path="/jeongsi-info" element={<JeongsiPage />} />
-          <Route path="/jeongsi-info/may-full-service" element={<MayFullServicePage />} />
-          <Route path="/service/study-with-jeongsi" element={<StudyWithJeongsiPage />} />
-          <Route path="/service/fund" element={<FundPage />} />
-          <Route path="/service/goods" element={<GoodsPage />} />
-          <Route path="/service/photo-booth" element={<PhotoBoothPage />} />
-          <Route path="/mypage" element={<MyPage />} />
-          <Route path="/admin/approvals" element={<AdminApprovalsPage />} />
+          <Route path="/jeongsi-info" element={<RequireLogin><JeongsiPage /></RequireLogin>} />
+          <Route path="/jeongsi-info/may-full-service" element={<RequireLogin><MayFullServicePage /></RequireLogin>} />
+          <Route path="/service/study-with-jeongsi" element={<RequireLogin><StudyWithJeongsiPage /></RequireLogin>} />
+          <Route path="/service/fund" element={<RequireLogin><FundPage /></RequireLogin>} />
+          <Route path="/service/goods" element={<RequireLogin><GoodsPage /></RequireLogin>} />
+          <Route path="/service/photo-booth" element={<RequireLogin><PhotoBoothPage /></RequireLogin>} />
+          <Route path="/mypage" element={<RequireLogin><MyPage /></RequireLogin>} />
+          <Route path="/admin/approvals" element={<RequireLogin><AdminApprovalsPage /></RequireLogin>} />
           <Route path="/notice" element={<NoticePage />} />
-          <Route path="/notice/community" element={<CommunityPage />} />
+          <Route path="/notice/community" element={<RequireLogin><CommunityPage /></RequireLogin>} />
           <Route path="/notice/press" element={<PressPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
