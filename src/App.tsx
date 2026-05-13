@@ -1637,20 +1637,9 @@ function AppShell() {
         >
           <button
             onClick={() => navigate('/jeongsi-info/may-full-service')}
-            className="group block w-full rounded-[2rem] border border-slate-200 bg-slate-50 p-8 text-left transition hover:-translate-y-1 hover:border-blue-200 hover:bg-white hover:shadow-lg"
+            className="w-full rounded-2xl bg-blue-700 px-6 py-4 text-center text-base font-black text-white shadow-lg shadow-blue-700/20 transition hover:bg-blue-800"
           >
-            <div className="flex flex-col gap-6 md:flex-row md:items-end md:justify-between">
-              <div>
-                <div className="text-sm font-semibold tracking-[0.18em] text-blue-700">FULL SERVICE</div>
-                <h2 className="mt-3 text-3xl font-black tracking-tight text-slate-900 md:text-4xl">5월 학력평가 풀서비스</h2>
-                <p className="mt-4 max-w-3xl text-base leading-relaxed text-slate-600">
-                  등급컷, 회원별 성적 순위표, 성적 입력 기능을 한 번에 확인할 수 있는 5월 학력평가 전용 서비스 페이지.
-                </p>
-              </div>
-              <div className="inline-flex items-center rounded-full bg-blue-700 px-5 py-2.5 text-sm font-semibold text-white transition group-hover:bg-blue-800">
-                들어가기
-              </div>
-            </div>
+            5월 학력평가 풀서비스
           </button>
         </SectionShell>
 
@@ -2063,8 +2052,8 @@ function AppShell() {
         >
           <div className="grid gap-6 lg:grid-cols-[0.95fr_1.05fr]">
             <div className="space-y-6">
-              <div className="overflow-hidden rounded-[1.9rem] border border-slate-200 bg-white shadow-sm">
-                <div className="bg-[linear-gradient(135deg,#3b82f6_0%,#2563eb_52%,#1d4ed8_100%)] px-6 py-7 text-white md:px-8 md:py-8">
+              <div className="overflow-visible rounded-[1.9rem] border border-slate-200 bg-white shadow-sm">
+                <div className="rounded-t-[1.9rem] bg-[linear-gradient(135deg,#3b82f6_0%,#2563eb_52%,#1d4ed8_100%)] px-6 py-7 text-white md:px-8 md:py-8">
                   <div className="flex flex-col gap-6 sm:flex-row sm:items-center sm:justify-between">
                     <div>
                       <div className="text-sm font-semibold tracking-[0.18em] text-blue-100">PROFILE</div>
@@ -2074,11 +2063,11 @@ function AppShell() {
                     <img
                       src="/chairman.png"
                       alt="장주헌 회장"
-                      className="h-28 w-28 rounded-[1.4rem] border border-white/25 bg-white/10 object-cover shadow-xl shadow-blue-950/20 sm:h-32 sm:w-32"
+                      className="-mb-14 h-36 w-36 rounded-[1.5rem] border-4 border-white bg-white object-cover shadow-2xl shadow-blue-950/25 sm:-mr-2 sm:h-44 sm:w-44"
                     />
                   </div>
                 </div>
-                <div className="px-6 py-6 md:px-8">
+                <div className="px-6 pb-6 pt-20 md:px-8">
                   <div className="grid gap-4 sm:grid-cols-2">
                     <div className="rounded-[1.4rem] border border-slate-200 bg-slate-50 p-4">
                       <div className="text-xs font-semibold tracking-[0.18em] text-blue-700">POSITION</div>
@@ -2209,9 +2198,6 @@ function AppShell() {
 
   function StudyWithJeongsiPage() {
     const maxSubjectSeconds = Math.max(...Object.values(subjectSeconds), 1)
-    const selectedUser = displayStudyLeaderboard.find((row) => row.user_id === selectedLeaderboardUserId) ?? null
-    const selectedUserSubjectSeconds = normalizeSubjectSeconds(selectedUser?.subject_seconds)
-    const selectedUserMaxSubjectSeconds = Math.max(...Object.values(selectedUserSubjectSeconds), 1)
 
     async function handleToggleStudyTimer() {
       if (!isLoggedIn || !currentUserId) {
@@ -2343,8 +2329,8 @@ function AppShell() {
             </div>
           </div>
 
-          <div className="space-y-6">
-            <div className="rounded-[1.5rem] border border-slate-200 bg-white p-5 shadow-sm">
+	          <div>
+	            <div className="rounded-[1.5rem] border border-slate-200 bg-white p-5 shadow-sm">
               <div className="flex items-center justify-between gap-3">
                 <div>
                   <div className="text-sm font-semibold tracking-[0.16em] text-slate-500">LIVE BOARD</div>
@@ -2423,41 +2409,8 @@ function AppShell() {
 	                  })
 	                )}
               </div>
-            </div>
-
-            <div className="rounded-[1.5rem] border border-slate-200 bg-white p-5 shadow-sm">
-              <div className="text-sm font-semibold tracking-[0.16em] text-slate-500">상세 보기</div>
-              {selectedUser ? (
-                <div className="mt-4 space-y-4">
-                  <div>
-                    <div className="text-2xl font-black tracking-tight text-slate-900">{selectedUser.username ? (selectedUser.username.includes('@') ? selectedUser.username.split('@')[0] : selectedUser.username) : 'unknown'}</div>
-                    <div className="mt-1 text-sm text-slate-500">총 공부 시간 · {formatStudyDuration(Number(selectedUser.current_seconds ?? 0))}</div>
-                  </div>
-                  <div className="grid grid-cols-3 gap-3 sm:grid-cols-6">
-                    {studySubjectOptions.map((subject) => {
-                      const seconds = selectedUserSubjectSeconds[subject] ?? 0
-                      const height = Math.max((seconds / selectedUserMaxSubjectSeconds) * 100, seconds > 0 ? 14 : 6)
-                      return (
-                        <div key={subject} className="rounded-[1.25rem] border border-slate-200 bg-slate-50 p-3">
-                          <div className="flex h-32 items-end justify-center">
-                            <div className="flex h-full w-full items-end justify-center rounded-[1rem] bg-white px-2 py-2">
-                              <div className="w-full rounded-t-2xl bg-gradient-to-t from-blue-700 via-blue-600 to-sky-400" style={{ height: `${height}%` }} />
-                            </div>
-                          </div>
-                          <div className="mt-3 text-center">
-                            <div className="text-sm font-bold text-slate-700">{subject}</div>
-                            <div className="mt-1 text-xs font-semibold text-slate-500">{formatStudyDuration(seconds)}</div>
-                          </div>
-                        </div>
-                      )
-                    })}
-                  </div>
-                </div>
-              ) : (
-                <div className="mt-4 rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-6 text-sm text-slate-500">리더보드에서 사람을 누르면 과목별 공부 시간을 볼 수 있어.</div>
-              )}
-            </div>
-          </div>
+	            </div>
+	          </div>
         </div>
       </SectionShell>
     )
@@ -2480,7 +2433,7 @@ function AppShell() {
     ] as const
 
     return (
-      <SectionShell eyebrow="SERVICE" title="굿즈샵" description="청고정총 굿즈와 상징 아이템을 확인하는 공간이야." wide>
+      <SectionShell eyebrow="SERVICE" title="굿즈샵" description="청고정총을 상징하는 굿즈." wide>
         <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-4">
           {goodsItems.map(([name, price, image, comingSoon]) => (
             <div key={name} className="overflow-hidden rounded-[1.5rem] border border-slate-200 bg-white shadow-sm transition hover:-translate-y-1 hover:border-blue-200 hover:shadow-lg">
