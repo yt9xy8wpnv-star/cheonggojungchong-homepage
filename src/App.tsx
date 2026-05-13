@@ -417,22 +417,45 @@ function AppShell() {
 
   useEffect(() => {
     let mounted = true
+    let lastQueuedProfileUserId = ''
 
-    async function applySession(session: { user?: { id: string; email?: string; user_metadata?: Record<string, unknown>; created_at?: string } } | null) {
-      if (!mounted) return
+    type RestoredSession = {
+      user?: {
+        id: string
+        email?: string
+        user_metadata?: Record<string, unknown>
+        created_at?: string
+      }
+    } | null
 
-      if (session?.user) {
-        setCurrentUserId(session.user.id)
-        setIsLoggedIn(true)
-        try {
-          await loadProfile(session.user.id, session.user.email ?? '', session.user.user_metadata ?? {}, session.user.created_at ?? '')
-        } catch (error) {
-          console.error('profile load error:', error)
-        }
-        return
+    function applySessionSnapshot(session: RestoredSession) {
+      if (!mounted) return null
+
+      if (!session?.user) {
+        resetAuthState()
+        return null
       }
 
-      resetAuthState()
+      const fallbackUsername = String(session.user.user_metadata?.username ?? session.user.email?.split('@')[0] ?? session.user.email ?? '')
+      setCurrentUserId(session.user.id)
+      setIsLoggedIn(true)
+      setCurrentUserEmail(session.user.email ?? '')
+      setCurrentUsername(fallbackUsername)
+      setCurrentJoinedAt(session.user.created_at ?? '')
+      return session.user
+    }
+
+    function queueProfileLoad(user: NonNullable<ReturnType<typeof applySessionSnapshot>>) {
+      if (lastQueuedProfileUserId === user.id) return
+      lastQueuedProfileUserId = user.id
+
+      window.setTimeout(() => {
+        if (!mounted) return
+
+        void loadProfile(user.id, user.email ?? '', user.user_metadata ?? {}, user.created_at ?? '').catch((error) => {
+          console.error('profile load error:', error)
+        })
+      }, 0)
     }
 
     async function initAuth() {
@@ -445,13 +468,14 @@ function AppShell() {
         const { data, error } = await supabase.auth.getSession()
         if (error) {
           console.error('auth session restore error:', error)
-          await applySession(null)
+          applySessionSnapshot(null)
         } else {
-          await applySession(data.session)
+          const user = applySessionSnapshot(data.session)
+          if (user) queueProfileLoad(user)
         }
       } catch (error) {
         console.error('auth init error:', error)
-        await applySession(null)
+        applySessionSnapshot(null)
       } finally {
         if (mounted) setSessionReady(true)
       }
@@ -467,11 +491,12 @@ function AppShell() {
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange(async (_event, session) => {
+    } = supabase.auth.onAuthStateChange((_event, session) => {
       if (!mounted) return
 
       try {
-        await applySession(session)
+        const user = applySessionSnapshot(session)
+        if (user) queueProfileLoad(user)
       } catch (error) {
         console.error('auth state change error:', error)
         resetAuthState()
