@@ -1207,15 +1207,10 @@ function AppShell() {
             alt="청고정총 깃발"
             className="absolute inset-0 h-full w-full object-cover object-center"
           />
-          <div className="absolute inset-0 bg-[linear-gradient(90deg,rgba(255,255,255,0.96)_0%,rgba(255,255,255,0.82)_34%,rgba(255,255,255,0.2)_64%,rgba(255,255,255,0)_100%)]" />
-          <div className="absolute inset-0 bg-[linear-gradient(0deg,rgba(255,255,255,0.94)_0%,rgba(255,255,255,0.58)_28%,rgba(255,255,255,0)_62%)]" />
-          <div className="relative flex min-h-[640px] items-end px-8 py-12 md:min-h-[720px] md:px-14 md:py-16">
+          <div className="absolute inset-x-0 bottom-0 h-[62%] bg-[linear-gradient(0deg,#ffffff_0%,rgba(255,255,255,0.96)_30%,rgba(255,255,255,0.72)_58%,rgba(255,255,255,0)_100%)]" />
+          <div className="relative flex min-h-[640px] items-end px-8 pb-12 pt-64 md:min-h-[720px] md:px-14 md:pb-16 md:pt-80">
             <div className="max-w-4xl">
-              <div className="inline-flex items-center gap-3 rounded-full border border-blue-100 bg-white/70 px-4 py-2 text-sm font-semibold text-blue-700 shadow-sm backdrop-blur">
-                <span className="flex h-7 w-7 items-center justify-center rounded-full bg-blue-700 text-white">정</span>
-                CHEONGGO JEONGCHONG
-              </div>
-              <h1 className="mt-6 text-5xl font-black leading-[1.05] tracking-tight text-slate-950 md:text-7xl">
+              <h1 className="text-5xl font-black leading-[1.05] tracking-tight text-slate-950 md:text-7xl">
                 청주고정시파이터총연맹
               </h1>
               <div className="mt-5 text-2xl font-black tracking-[0.32em] text-blue-700">청.고.정.총</div>
