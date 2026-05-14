@@ -735,7 +735,7 @@ function AppShell() {
       return
     }
 
-    setSignupMessage('회원가입이 완료되었습니다. 이제 로그인할 수 있습니다.')
+    setSignupMessage('회원가입 신청이 접수되었습니다. 관리자 승인 후 이용할 수 있습니다.')
     setSignupEmail('')
     setSignupPassword('')
     setSignupPasswordConfirm('')
