@@ -1,24 +1,5 @@
-create table if not exists public.profiles (
-  id uuid primary key references auth.users(id) on delete cascade,
-  email text not null default '',
-  username text not null,
-  name text not null default '',
-  grade integer,
-  class_no integer,
-  student_no integer,
-  korean_subject text not null default '화법과 작문',
-  math_subject text not null default '미적분',
-  english_choice text not null default '응시함',
-  inquiry1_subject text not null default '응시하지 않음',
-  inquiry2_subject text not null default '응시하지 않음',
-  second_foreign_subject text not null default '응시하지 않음',
-  is_admin boolean not null default false,
-  is_approved boolean not null default false,
-  created_at timestamptz not null default now()
-);
-
 alter table public.profiles add column if not exists email text default '';
-alter table public.profiles add column if not exists username text;
+alter table public.profiles add column if not exists username text default '회원';
 alter table public.profiles add column if not exists name text default '';
 alter table public.profiles add column if not exists grade integer;
 alter table public.profiles add column if not exists class_no integer;
@@ -36,25 +17,33 @@ alter table public.profiles add column if not exists created_at timestamptz defa
 update public.profiles as profiles
 set
   email = coalesce(nullif(profiles.email, ''), users.email, ''),
-  username = coalesce(nullif(username, ''), '회원'),
-  name = coalesce(name, ''),
-  korean_subject = coalesce(nullif(korean_subject, ''), '화법과 작문'),
-  math_subject = coalesce(nullif(math_subject, ''), '미적분'),
-  english_choice = coalesce(nullif(english_choice, ''), '응시함'),
-  inquiry1_subject = coalesce(nullif(inquiry1_subject, ''), '응시하지 않음'),
-  inquiry2_subject = coalesce(nullif(inquiry2_subject, ''), '응시하지 않음'),
-  second_foreign_subject = coalesce(nullif(second_foreign_subject, ''), '응시하지 않음'),
-  is_admin = coalesce(is_admin, false),
-  is_approved = coalesce(is_approved, false),
+  username = coalesce(nullif(profiles.username, ''), users.raw_user_meta_data ->> 'username', split_part(coalesce(users.email, ''), '@', 1), '회원'),
+  name = coalesce(profiles.name, users.raw_user_meta_data ->> 'name', ''),
+  korean_subject = coalesce(nullif(profiles.korean_subject, ''), users.raw_user_meta_data ->> 'korean_subject', '화법과 작문'),
+  math_subject = coalesce(nullif(profiles.math_subject, ''), users.raw_user_meta_data ->> 'math_subject', '미적분'),
+  english_choice = coalesce(nullif(profiles.english_choice, ''), users.raw_user_meta_data ->> 'english_choice', '응시함'),
+  inquiry1_subject = coalesce(nullif(profiles.inquiry1_subject, ''), users.raw_user_meta_data ->> 'inquiry1_subject', '응시하지 않음'),
+  inquiry2_subject = coalesce(nullif(profiles.inquiry2_subject, ''), users.raw_user_meta_data ->> 'inquiry2_subject', '응시하지 않음'),
+  second_foreign_subject = coalesce(nullif(profiles.second_foreign_subject, ''), users.raw_user_meta_data ->> 'second_foreign_subject', '응시하지 않음'),
+  is_admin = coalesce(profiles.is_admin, false),
+  is_approved = coalesce(profiles.is_approved, false),
   created_at = coalesce(profiles.created_at, users.created_at, now())
 from auth.users as users
 where profiles.id = users.id;
 
-update public.profiles
-set email = coalesce(email, '')
-where email is null;
-
 alter table public.profiles alter column email set default '';
+alter table public.profiles alter column username set default '회원';
+alter table public.profiles alter column name set default '';
+alter table public.profiles alter column korean_subject set default '화법과 작문';
+alter table public.profiles alter column math_subject set default '미적분';
+alter table public.profiles alter column english_choice set default '응시함';
+alter table public.profiles alter column inquiry1_subject set default '응시하지 않음';
+alter table public.profiles alter column inquiry2_subject set default '응시하지 않음';
+alter table public.profiles alter column second_foreign_subject set default '응시하지 않음';
+alter table public.profiles alter column is_admin set default false;
+alter table public.profiles alter column is_approved set default false;
+alter table public.profiles alter column created_at set default now();
+
 alter table public.profiles alter column email set not null;
 alter table public.profiles alter column username set not null;
 alter table public.profiles alter column name set not null;
@@ -68,27 +57,12 @@ alter table public.profiles alter column is_admin set not null;
 alter table public.profiles alter column is_approved set not null;
 alter table public.profiles alter column created_at set not null;
 
-alter table public.profiles enable row level security;
-
-grant select, insert, update on public.profiles to authenticated;
-
-create or replace function public.profile_meta_int(meta jsonb, key text)
-returns integer
-language sql
-immutable
-as $$
-  select case
-    when meta ->> key ~ '^[0-9]+$' then (meta ->> key)::integer
-    else null
-  end
-$$;
-
 create or replace function public.handle_new_user_profile()
 returns trigger
 language plpgsql
 security definer
 set search_path = public
-as $$
+as $profile_trigger$
 begin
   insert into public.profiles (
     id,
@@ -113,9 +87,9 @@ begin
     coalesce(new.email, ''),
     coalesce(nullif(new.raw_user_meta_data ->> 'username', ''), split_part(coalesce(new.email, ''), '@', 1), '회원'),
     coalesce(new.raw_user_meta_data ->> 'name', ''),
-    public.profile_meta_int(new.raw_user_meta_data, 'grade'),
-    public.profile_meta_int(new.raw_user_meta_data, 'class_no'),
-    public.profile_meta_int(new.raw_user_meta_data, 'student_no'),
+    case when new.raw_user_meta_data ->> 'grade' ~ '^[0-9]+$' then (new.raw_user_meta_data ->> 'grade')::integer else null end,
+    case when new.raw_user_meta_data ->> 'class_no' ~ '^[0-9]+$' then (new.raw_user_meta_data ->> 'class_no')::integer else null end,
+    case when new.raw_user_meta_data ->> 'student_no' ~ '^[0-9]+$' then (new.raw_user_meta_data ->> 'student_no')::integer else null end,
     coalesce(nullif(new.raw_user_meta_data ->> 'korean_subject', ''), '화법과 작문'),
     coalesce(nullif(new.raw_user_meta_data ->> 'math_subject', ''), '미적분'),
     coalesce(nullif(new.raw_user_meta_data ->> 'english_choice', ''), '응시함'),
@@ -130,28 +104,14 @@ begin
 
   return new;
 end;
-$$;
+$profile_trigger$;
 
 drop trigger if exists on_auth_user_created_profile on auth.users;
+
 create trigger on_auth_user_created_profile
 after insert on auth.users
 for each row
 execute function public.handle_new_user_profile();
-
-create or replace function public.is_current_user_admin()
-returns boolean
-language sql
-stable
-security definer
-set search_path = public
-as $$
-  select exists (
-    select 1
-    from public.profiles
-    where id = auth.uid()
-      and is_admin = true
-  )
-$$;
 
 insert into public.profiles (
   id,
@@ -176,9 +136,9 @@ select
   coalesce(users.email, ''),
   coalesce(nullif(users.raw_user_meta_data ->> 'username', ''), split_part(coalesce(users.email, ''), '@', 1), '회원'),
   coalesce(users.raw_user_meta_data ->> 'name', ''),
-  public.profile_meta_int(users.raw_user_meta_data, 'grade'),
-  public.profile_meta_int(users.raw_user_meta_data, 'class_no'),
-  public.profile_meta_int(users.raw_user_meta_data, 'student_no'),
+  case when users.raw_user_meta_data ->> 'grade' ~ '^[0-9]+$' then (users.raw_user_meta_data ->> 'grade')::integer else null end,
+  case when users.raw_user_meta_data ->> 'class_no' ~ '^[0-9]+$' then (users.raw_user_meta_data ->> 'class_no')::integer else null end,
+  case when users.raw_user_meta_data ->> 'student_no' ~ '^[0-9]+$' then (users.raw_user_meta_data ->> 'student_no')::integer else null end,
   coalesce(nullif(users.raw_user_meta_data ->> 'korean_subject', ''), '화법과 작문'),
   coalesce(nullif(users.raw_user_meta_data ->> 'math_subject', ''), '미적분'),
   coalesce(nullif(users.raw_user_meta_data ->> 'english_choice', ''), '응시함'),
@@ -188,41 +148,10 @@ select
   false,
   false,
   coalesce(users.created_at, now())
-from auth.users
+from auth.users as users
 where not exists (
   select 1
-  from public.profiles
+  from public.profiles as profiles
   where profiles.id = users.id
 )
 on conflict (id) do nothing;
-
-drop policy if exists "profiles_select_own_or_admin" on public.profiles;
-create policy "profiles_select_own_or_admin"
-on public.profiles
-for select
-to authenticated
-using (
-  auth.uid() = id
-  or public.is_current_user_admin()
-);
-
-drop policy if exists "profiles_insert_own" on public.profiles;
-create policy "profiles_insert_own"
-on public.profiles
-for insert
-to authenticated
-with check (auth.uid() = id);
-
-drop policy if exists "profiles_update_own_or_admin" on public.profiles;
-create policy "profiles_update_own_or_admin"
-on public.profiles
-for update
-to authenticated
-using (
-  auth.uid() = id
-  or public.is_current_user_admin()
-)
-with check (
-  auth.uid() = id
-  or public.is_current_user_admin()
-);

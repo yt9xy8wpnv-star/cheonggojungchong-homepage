@@ -757,7 +757,7 @@ function AppShell() {
 
     if (!user) return false
 
-    const { error } = await client
+    const { data, error } = await client
       .from('profiles')
       .select('id')
       .eq('id', user.id)
@@ -766,6 +766,41 @@ function AppShell() {
     if (error) {
       console.error('profile existence check failed:', error)
       return true
+    }
+
+    if (data) return true
+
+    const meta = user.user_metadata as Record<string, unknown>
+    const fallbackEmail = user.email ?? ''
+    const fallbackUsername = String(meta.username ?? fallbackEmail.split('@')[0] ?? '회원')
+    const fallbackName = String(meta.name ?? '')
+    const parseMetaNumber = (value: unknown) => {
+      const parsed = typeof value === 'number' ? value : Number(value ?? 0)
+      return Number.isFinite(parsed) && parsed > 0 ? parsed : null
+    }
+
+    const { error: insertError } = await client.from('profiles').insert({
+      id: user.id,
+      email: fallbackEmail,
+      username: fallbackUsername,
+      name: fallbackName,
+      grade: parseMetaNumber(meta.grade),
+      class_no: parseMetaNumber(meta.class_no),
+      student_no: parseMetaNumber(meta.student_no),
+      korean_subject: String(meta.korean_subject ?? initialSignupSubjectSelections.korean),
+      math_subject: String(meta.math_subject ?? initialSignupSubjectSelections.math),
+      english_choice: String(meta.english_choice ?? initialSignupSubjectSelections.english),
+      inquiry1_subject: String(meta.inquiry1_subject ?? initialSignupSubjectSelections.inquiry1),
+      inquiry2_subject: String(meta.inquiry2_subject ?? initialSignupSubjectSelections.inquiry2),
+      second_foreign_subject: String(meta.second_foreign_subject ?? initialSignupSubjectSelections.secondForeign),
+      is_admin: false,
+      is_approved: false,
+      created_at: user.created_at ?? new Date().toISOString(),
+    })
+
+    if (insertError) {
+      console.error('profile creation failed:', insertError)
+      return false
     }
 
     return true
@@ -791,7 +826,11 @@ function AppShell() {
       return
     }
 
-    await ensureProfileExists()
+    const profileReady = await ensureProfileExists()
+    if (!profileReady) {
+      setLoginMessage('로그인은 됐지만 프로필 생성에 실패했어. Supabase profiles 정책과 트리거를 확인해줘.')
+      return
+    }
 
     setLoginMessage('로그인 성공')
     navigate('/')
