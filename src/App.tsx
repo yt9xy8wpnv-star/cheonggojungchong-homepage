@@ -1261,7 +1261,7 @@ function AppShell() {
       const { data, error } = await supabase
         .from('profiles')
         .select('id, username, name, grade, class_no, student_no, created_at, is_admin, is_approved')
-        .eq('is_approved', false)
+        .or('is_approved.eq.false,is_approved.is.null')
         .order('created_at', { ascending: false })
 
       if (error) throw error
