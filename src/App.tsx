@@ -526,6 +526,11 @@ function AppShell() {
     setApprovalProfiles([])
     setApprovalMessage('')
     setApprovingProfileId(null)
+    setExpandedApprovalProfileId(null)
+    setMemberProfiles([])
+    setMemberMessage('')
+    setPromotingProfileId(null)
+    setExpandedMemberProfileId(null)
     setStudySeconds(0)
     setStudyRunning(false)
     setCurrentStudySubject('국어')
@@ -573,7 +578,7 @@ function AppShell() {
 
     const { data, error } = await supabase
       .from('profiles')
-      .select('username, name, grade, class_no, student_no, created_at, is_admin, is_approved, role')
+      .select('email, username, name, grade, class_no, student_no, korean_subject, math_subject, english_choice, inquiry1_subject, inquiry2_subject, second_foreign_subject, created_at, is_admin, is_approved, role')
       .eq('id', userId)
       .maybeSingle<ProfileRow>()
 
@@ -1194,6 +1199,12 @@ function AppShell() {
   }, [canManageApprovals, location.pathname])
 
   useEffect(() => {
+    if (!canManageApprovals || location.pathname !== '/admin/members') return
+
+    void fetchMemberProfiles()
+  }, [canManageApprovals, location.pathname])
+
+  useEffect(() => {
     if (!isLoggedIn || !currentUserId) return
 
     let cancelled = false
@@ -1328,7 +1339,7 @@ function AppShell() {
     try {
       const { data, error } = await supabase
         .from('profiles')
-        .select('id, username, name, grade, class_no, student_no, created_at, is_admin, is_approved, role')
+        .select('id, email, username, name, grade, class_no, student_no, korean_subject, math_subject, english_choice, inquiry1_subject, inquiry2_subject, second_foreign_subject, created_at, is_admin, is_approved, role')
         .or('is_approved.eq.false,is_approved.is.null')
         .order('created_at', { ascending: false })
 
@@ -1343,13 +1354,9 @@ function AppShell() {
     }
   }
 
-  async function handleApproveProfile(profileId: string, nextRole: UserRole = 'member') {
+  async function handleApproveProfile(profileId: string) {
     if (!supabase || !isLoggedIn || !canManageApprovals) {
       setApprovalMessage('관리자 또는 부관리자만 회원을 승인할 수 있습니다.')
-      return
-    }
-    if (nextRole !== 'member' && !isAdmin) {
-      setApprovalMessage('부관리자 지정은 관리자만 할 수 있습니다.')
       return
     }
 
@@ -1358,18 +1365,79 @@ function AppShell() {
     try {
       const { error } = await supabase.rpc('approve_profile', {
         target_profile_id: profileId,
-        next_role: nextRole,
+        next_role: 'member',
       })
 
       if (error) throw error
 
       setApprovalProfiles((prev) => prev.filter((profile) => profile.id !== profileId))
-      setApprovalMessage(nextRole === 'sub_admin' ? '부관리자 승인이 완료되었습니다.' : '회원 승인이 완료되었습니다.')
+      setApprovalMessage('회원 승인이 완료되었습니다.')
     } catch (error) {
       const message = typeof error === 'object' && error !== null && 'message' in error ? String((error as { message?: unknown }).message ?? '알 수 없는 오류') : '알 수 없는 오류'
       setApprovalMessage(`회원 승인 실패: ${message}`)
     } finally {
       setApprovingProfileId(null)
+    }
+  }
+
+  async function fetchMemberProfiles() {
+    if (!supabase || !isLoggedIn || !canManageApprovals) return
+
+    setMemberLoading(true)
+    setMemberMessage('')
+    try {
+      let query = supabase
+        .from('profiles')
+        .select('id, email, username, name, grade, class_no, student_no, korean_subject, math_subject, english_choice, inquiry1_subject, inquiry2_subject, second_foreign_subject, created_at, is_admin, is_approved, role')
+        .eq('is_approved', true)
+        .order('created_at', { ascending: false })
+
+      query = isAdmin ? query.in('role', ['member', 'sub_admin']) : query.eq('role', 'member')
+
+      const { data, error } = await query
+
+      if (error) throw error
+
+      setMemberProfiles(((data ?? []) as MemberProfileRow[]).filter((profile) => profile.id !== currentUserId))
+    } catch (error) {
+      const message = typeof error === 'object' && error !== null && 'message' in error ? String((error as { message?: unknown }).message ?? '알 수 없는 오류') : '알 수 없는 오류'
+      setMemberMessage(`회원 목록을 불러오지 못했습니다: ${message}`)
+    } finally {
+      setMemberLoading(false)
+    }
+  }
+
+  async function handlePromoteProfile(profile: MemberProfileRow) {
+    if (!supabase || !isLoggedIn || !canManageApprovals) {
+      setMemberMessage('관리자 또는 부관리자만 회원 권한을 관리할 수 있습니다.')
+      return
+    }
+
+    const role = normalizeUserRole(profile.role, profile.is_admin)
+    const nextRole: UserRole | null = role === 'member' ? 'sub_admin' : role === 'sub_admin' && isAdmin ? 'admin' : null
+
+    if (!nextRole) {
+      setMemberMessage('현재 계정으로는 이 회원을 승격할 수 없습니다.')
+      return
+    }
+
+    setPromotingProfileId(profile.id)
+    setMemberMessage('')
+    try {
+      const { error } = await supabase.rpc('promote_profile_role', {
+        target_profile_id: profile.id,
+        next_role: nextRole,
+      })
+
+      if (error) throw error
+
+      setMemberMessage(`${profile.username || profile.name || '회원'}님의 권한을 ${getRoleLabel(nextRole, true)}로 승격했습니다.`)
+      await fetchMemberProfiles()
+    } catch (error) {
+      const message = typeof error === 'object' && error !== null && 'message' in error ? String((error as { message?: unknown }).message ?? '알 수 없는 오류') : '알 수 없는 오류'
+      setMemberMessage(`권한 승격 실패: ${message}`)
+    } finally {
+      setPromotingProfileId(null)
     }
   }
 
@@ -2335,9 +2403,14 @@ function AppShell() {
               로그아웃
             </button>
             {canManageApprovals && (
-              <button onClick={() => navigate('/admin/approvals')} className="rounded-2xl bg-blue-700 px-5 py-3 text-sm font-semibold text-white transition hover:bg-blue-800">
-                회원가입 승인
-              </button>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <button onClick={() => navigate('/admin/approvals')} className="rounded-2xl bg-blue-700 px-5 py-3 text-sm font-semibold text-white transition hover:bg-blue-800">
+                  회원가입 승인
+                </button>
+                <button onClick={() => navigate('/admin/members')} className="rounded-2xl border border-blue-200 bg-blue-50 px-5 py-3 text-sm font-semibold text-blue-700 transition hover:border-blue-300 hover:bg-blue-100">
+                  회원 관리
+                </button>
+              </div>
             )}
           </div>
 
@@ -2516,13 +2589,21 @@ function AppShell() {
             <div className="text-sm font-semibold text-slate-500">
               승인 대기 회원 <span className="text-blue-700">{approvalProfiles.length}</span>명
             </div>
-            <button
-              onClick={fetchApprovalProfiles}
-              disabled={approvalLoading}
-              className="rounded-2xl border border-slate-300 bg-white px-5 py-3 text-sm font-semibold text-slate-800 transition hover:border-blue-300 hover:text-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {approvalLoading ? '새로고침 중...' : '목록 새로고침'}
-            </button>
+            <div className="flex flex-wrap gap-3">
+              <button
+                onClick={() => navigate('/admin/members')}
+                className="rounded-2xl border border-slate-300 bg-white px-5 py-3 text-sm font-semibold text-slate-800 transition hover:border-blue-300 hover:text-blue-700"
+              >
+                회원 관리
+              </button>
+              <button
+                onClick={fetchApprovalProfiles}
+                disabled={approvalLoading}
+                className="rounded-2xl bg-blue-700 px-5 py-3 text-sm font-semibold text-white transition hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {approvalLoading ? '새로고침 중...' : '목록 새로고침'}
+              </button>
+            </div>
           </div>
 
           {approvalMessage && (
@@ -2542,45 +2623,233 @@ function AppShell() {
                   <thead className="bg-slate-100 text-slate-700">
                     <tr className="border-b border-slate-200">
                       <th className="px-5 py-4 text-sm font-bold">아이디</th>
-                      <th className="px-5 py-4 text-sm font-bold">이름</th>
-                      <th className="px-5 py-4 text-sm font-bold">학번</th>
                       <th className="px-5 py-4 text-sm font-bold">권한</th>
                       <th className="px-5 py-4 text-sm font-bold">가입일</th>
+                      <th className="px-5 py-4 text-sm font-bold">상세</th>
                       <th className="px-5 py-4 text-sm font-bold">처리</th>
                     </tr>
                   </thead>
                   <tbody className="text-slate-700">
-                    {approvalProfiles.map((profile, index) => (
-                      <tr key={profile.id} className={index !== approvalProfiles.length - 1 ? 'border-b border-slate-200' : ''}>
-                        <td className="px-5 py-4 text-sm font-bold text-slate-900">{profile.username || '-'}</td>
-                        <td className="px-5 py-4 text-sm">{profile.name || '-'}</td>
-                        <td className="px-5 py-4 text-sm">
-                          {[profile.grade, profile.class_no, profile.student_no].every((value) => value !== null)
-                            ? `${profile.grade}학년 ${profile.class_no}반 ${profile.student_no}번`
-                            : '-'}
-                        </td>
-                        <td className="px-5 py-4 text-sm">{getRoleLabel(normalizeUserRole(profile.role, profile.is_admin), Boolean(profile.is_approved))}</td>
-                        <td className="px-5 py-4 text-sm">{formatJoinedDate(profile.created_at ?? '')}</td>
-                        <td className="px-5 py-4">
-                          <button
-                            onClick={() => handleApproveProfile(profile.id)}
-                            disabled={approvingProfileId === profile.id}
-                            className="rounded-2xl bg-blue-700 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-60"
-                          >
-                            {approvingProfileId === profile.id ? '승인 중...' : '승인'}
-                          </button>
-                          {isAdmin && (
-                            <button
-                              onClick={() => handleApproveProfile(profile.id, 'sub_admin')}
-                              disabled={approvingProfileId === profile.id}
-                              className="ml-2 rounded-2xl border border-blue-200 bg-blue-50 px-4 py-2.5 text-sm font-semibold text-blue-700 transition hover:border-blue-300 hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-60"
-                            >
-                              부관리자로 승인
-                            </button>
+                    {approvalProfiles.map((profile, index) => {
+                      const expanded = expandedApprovalProfileId === profile.id
+                      const subjectRows = getProfileSubjectRows(profile)
+
+                      return (
+                        <Fragment key={profile.id}>
+                          <tr className={index !== approvalProfiles.length - 1 || expanded ? 'border-b border-slate-200' : ''}>
+                            <td className="px-5 py-4 text-sm font-bold text-slate-900">{profile.username || '-'}</td>
+                            <td className="px-5 py-4 text-sm">{getRoleLabel(normalizeUserRole(profile.role, profile.is_admin), Boolean(profile.is_approved))}</td>
+                            <td className="px-5 py-4 text-sm">{formatJoinedDate(profile.created_at ?? '')}</td>
+                            <td className="px-5 py-4">
+                              <button
+                                type="button"
+                                onClick={() => setExpandedApprovalProfileId((prev) => (prev === profile.id ? null : profile.id))}
+                                className="rounded-2xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-800 transition hover:border-blue-300 hover:text-blue-700"
+                              >
+                                {expanded ? '접기' : '상세'}
+                              </button>
+                            </td>
+                            <td className="px-5 py-4">
+                              <button
+                                onClick={() => handleApproveProfile(profile.id)}
+                                disabled={approvingProfileId === profile.id}
+                                className="rounded-2xl bg-blue-700 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-60"
+                              >
+                                {approvingProfileId === profile.id ? '승인 중...' : '승인'}
+                              </button>
+                            </td>
+                          </tr>
+                          {expanded && (
+                            <tr className={index !== approvalProfiles.length - 1 ? 'border-b border-slate-200' : ''}>
+                              <td colSpan={5} className="bg-slate-50 px-5 py-5">
+                                <div className="grid gap-4 lg:grid-cols-[0.8fr_1.2fr]">
+                                  <div className="rounded-2xl border border-slate-200 bg-white p-4">
+                                    <div className="text-xs font-semibold tracking-[0.16em] text-blue-700">PROFILE</div>
+                                    <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                                      {[
+                                        ['이름', profile.name || '-'],
+                                        ['학번', formatStudentInfo(profile)],
+                                        ['이메일', profile.email || '-'],
+                                        ['가입일', formatJoinedDate(profile.created_at ?? '')],
+                                      ].map(([label, value]) => (
+                                        <div key={label} className="rounded-2xl bg-slate-50 px-4 py-3">
+                                          <div className="text-xs font-semibold text-slate-500">{label}</div>
+                                          <div className="mt-1 text-sm font-bold text-slate-900">{value}</div>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </div>
+                                  <div className="rounded-2xl border border-slate-200 bg-white p-4">
+                                    <div className="text-xs font-semibold tracking-[0.16em] text-blue-700">SUBJECTS</div>
+                                    <div className="mt-3 grid gap-3 sm:grid-cols-3">
+                                      {subjectRows.map(([label, value]) => (
+                                        <div key={label} className="rounded-2xl bg-slate-50 px-4 py-3">
+                                          <div className="text-xs font-semibold text-slate-500">{label}</div>
+                                          <div className="mt-1 text-sm font-bold text-slate-900">{value}</div>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </div>
+                                </div>
+                              </td>
+                            </tr>
                           )}
-                        </td>
-                      </tr>
-                    ))}
+                        </Fragment>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </div>
+      </SectionShell>
+    )
+  }
+  function MemberManagementPage() {
+    if (!isLoggedIn) {
+      return <Navigate to="/login" replace />
+    }
+
+    if (!canManageApprovals) {
+      return (
+        <SectionShell eyebrow="ADMIN" title="회원 관리" description="관리자 또는 부관리자 권한이 있는 계정만 접근할 수 있는 페이지야.">
+          <div className="rounded-[1.5rem] border border-slate-200 bg-slate-50 p-6 text-slate-600">회원 관리 권한이 확인되지 않았습니다.</div>
+        </SectionShell>
+      )
+    }
+
+    const getNextRole = (profile: MemberProfileRow): UserRole | null => {
+      const role = normalizeUserRole(profile.role, profile.is_admin)
+      if (role === 'member') return 'sub_admin'
+      if (role === 'sub_admin' && isAdmin) return 'admin'
+      return null
+    }
+
+    return (
+      <SectionShell eyebrow="ADMIN" title="회원 관리" description="승인 완료된 회원을 확인하고 권한을 승격하는 관리자 전용 화면이야. 부관리자는 일반 회원만, 관리자는 부관리자까지 관리할 수 있어." wide>
+        <div className="space-y-5">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="text-sm font-semibold text-slate-500">
+              관리 가능 회원 <span className="text-blue-700">{memberProfiles.length}</span>명
+            </div>
+            <div className="flex flex-wrap gap-3">
+              <button
+                onClick={() => navigate('/admin/approvals')}
+                className="rounded-2xl border border-slate-300 bg-white px-5 py-3 text-sm font-semibold text-slate-800 transition hover:border-blue-300 hover:text-blue-700"
+              >
+                회원가입 승인
+              </button>
+              <button
+                onClick={fetchMemberProfiles}
+                disabled={memberLoading}
+                className="rounded-2xl bg-blue-700 px-5 py-3 text-sm font-semibold text-white transition hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {memberLoading ? '새로고침 중...' : '목록 새로고침'}
+              </button>
+            </div>
+          </div>
+
+          {memberMessage && (
+            <div className={`rounded-2xl border px-4 py-3 text-sm font-medium ${memberMessage.includes('승격했습니다') ? 'border-blue-100 bg-blue-50 text-blue-700' : 'border-red-100 bg-red-50 text-red-600'}`}>
+              {memberMessage}
+            </div>
+          )}
+
+          <div className="overflow-hidden rounded-[1.5rem] border border-slate-200 bg-white">
+            {memberLoading && memberProfiles.length === 0 ? (
+              <div className="p-6 text-sm text-slate-500">회원 목록을 불러오는 중...</div>
+            ) : memberProfiles.length === 0 ? (
+              <div className="p-6 text-sm text-slate-500">현재 관리 가능한 승인 회원이 없습니다.</div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="min-w-full text-left">
+                  <thead className="bg-slate-100 text-slate-700">
+                    <tr className="border-b border-slate-200">
+                      <th className="px-5 py-4 text-sm font-bold">아이디</th>
+                      <th className="px-5 py-4 text-sm font-bold">이름</th>
+                      <th className="px-5 py-4 text-sm font-bold">권한</th>
+                      <th className="px-5 py-4 text-sm font-bold">가입일</th>
+                      <th className="px-5 py-4 text-sm font-bold">상세</th>
+                      <th className="px-5 py-4 text-sm font-bold">승격</th>
+                    </tr>
+                  </thead>
+                  <tbody className="text-slate-700">
+                    {memberProfiles.map((profile, index) => {
+                      const role = normalizeUserRole(profile.role, profile.is_admin)
+                      const expanded = expandedMemberProfileId === profile.id
+                      const nextRole = getNextRole(profile)
+                      const subjectRows = getProfileSubjectRows(profile)
+
+                      return (
+                        <Fragment key={profile.id}>
+                          <tr className={index !== memberProfiles.length - 1 || expanded ? 'border-b border-slate-200' : ''}>
+                            <td className="px-5 py-4 text-sm font-bold text-slate-900">{profile.username || '-'}</td>
+                            <td className="px-5 py-4 text-sm">{profile.name || '-'}</td>
+                            <td className="px-5 py-4 text-sm">{getRoleLabel(role, true)}</td>
+                            <td className="px-5 py-4 text-sm">{formatJoinedDate(profile.created_at ?? '')}</td>
+                            <td className="px-5 py-4">
+                              <button
+                                type="button"
+                                onClick={() => setExpandedMemberProfileId((prev) => (prev === profile.id ? null : profile.id))}
+                                className="rounded-2xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-800 transition hover:border-blue-300 hover:text-blue-700"
+                              >
+                                {expanded ? '접기' : '상세'}
+                              </button>
+                            </td>
+                            <td className="px-5 py-4">
+                              {nextRole ? (
+                                <button
+                                  type="button"
+                                  onClick={() => handlePromoteProfile(profile)}
+                                  disabled={promotingProfileId === profile.id}
+                                  className="rounded-2xl bg-blue-700 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-60"
+                                >
+                                  {promotingProfileId === profile.id ? '승격 중...' : `${getRoleLabel(nextRole, true)}로 승격`}
+                                </button>
+                              ) : (
+                                <span className="text-sm text-slate-400">승격 불가</span>
+                              )}
+                            </td>
+                          </tr>
+                          {expanded && (
+                            <tr className={index !== memberProfiles.length - 1 ? 'border-b border-slate-200' : ''}>
+                              <td colSpan={6} className="bg-slate-50 px-5 py-5">
+                                <div className="grid gap-4 lg:grid-cols-[0.8fr_1.2fr]">
+                                  <div className="rounded-2xl border border-slate-200 bg-white p-4">
+                                    <div className="text-xs font-semibold tracking-[0.16em] text-blue-700">PROFILE</div>
+                                    <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                                      {[
+                                        ['학번', formatStudentInfo(profile)],
+                                        ['이메일', profile.email || '-'],
+                                        ['권한', getRoleLabel(role, true)],
+                                        ['가입일', formatJoinedDate(profile.created_at ?? '')],
+                                      ].map(([label, value]) => (
+                                        <div key={label} className="rounded-2xl bg-slate-50 px-4 py-3">
+                                          <div className="text-xs font-semibold text-slate-500">{label}</div>
+                                          <div className="mt-1 text-sm font-bold text-slate-900">{value}</div>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </div>
+                                  <div className="rounded-2xl border border-slate-200 bg-white p-4">
+                                    <div className="text-xs font-semibold tracking-[0.16em] text-blue-700">SUBJECTS</div>
+                                    <div className="mt-3 grid gap-3 sm:grid-cols-3">
+                                      {subjectRows.map(([label, value]) => (
+                                        <div key={label} className="rounded-2xl bg-slate-50 px-4 py-3">
+                                          <div className="text-xs font-semibold text-slate-500">{label}</div>
+                                          <div className="mt-1 text-sm font-bold text-slate-900">{value}</div>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </div>
+                                </div>
+                              </td>
+                            </tr>
+                          )}
+                        </Fragment>
+                      )
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -3185,6 +3454,7 @@ function AppShell() {
           <Route path="/service/photo-booth" element={requireApproved(() => PhotoBoothPage())} />
           <Route path="/mypage" element={requireLogin(() => MyPage())} />
           <Route path="/admin/approvals" element={requireLogin(() => AdminApprovalsPage())} />
+          <Route path="/admin/members" element={requireLogin(() => MemberManagementPage())} />
           <Route path="/notice" element={NoticePage()} />
           <Route path="/notice/community" element={requireApproved(() => CommunityPage())} />
           <Route path="/notice/press" element={PressPage()} />

@@ -1,17 +1,3 @@
-alter table public.profiles enable row level security;
-
-alter table public.profiles add column if not exists role text default 'member';
-
-update public.profiles
-set role = case
-  when role in ('member', 'sub_admin', 'admin') then role
-  when is_admin = true then 'admin'
-  else 'member'
-end;
-
-alter table public.profiles alter column role set default 'member';
-alter table public.profiles alter column role set not null;
-
 create or replace function public.is_current_user_admin()
 returns boolean
 language sql
@@ -24,7 +10,7 @@ as '
     from public.profiles
     where id = auth.uid()
       and (is_admin = true or role = ''admin'')
-  );
+  )
 ';
 
 create or replace function public.is_current_user_staff()
@@ -39,7 +25,7 @@ as '
     from public.profiles
     where id = auth.uid()
       and (is_admin = true or role in (''admin'', ''sub_admin''))
-  );
+  )
 ';
 
 create or replace function public.is_current_user_sub_admin()
@@ -55,23 +41,12 @@ as '
     where id = auth.uid()
       and is_admin = false
       and role = ''sub_admin''
-  );
+  )
 ';
 
 grant execute on function public.is_current_user_admin() to authenticated;
 grant execute on function public.is_current_user_staff() to authenticated;
 grant execute on function public.is_current_user_sub_admin() to authenticated;
-revoke update on public.profiles from authenticated;
-grant select, insert on public.profiles to authenticated;
-grant update (
-  username,
-  korean_subject,
-  math_subject,
-  english_choice,
-  inquiry1_subject,
-  inquiry2_subject,
-  second_foreign_subject
-) on public.profiles to authenticated;
 
 create or replace function public.approve_profile(target_profile_id uuid, next_role text default 'member')
 returns void
@@ -168,39 +143,3 @@ end;
 ';
 
 grant execute on function public.promote_profile_role(uuid, text) to authenticated;
-
-drop policy if exists "profiles_select_own_or_admin" on public.profiles;
-create policy "profiles_select_own_or_admin"
-on public.profiles
-for select
-to authenticated
-using (
-  auth.uid() = id
-  or public.is_current_user_admin()
-  or (
-    public.is_current_user_sub_admin()
-    and coalesce(role, 'member') = 'member'
-    and coalesce(is_admin, false) = false
-  )
-);
-
-drop policy if exists "profiles_insert_own" on public.profiles;
-create policy "profiles_insert_own"
-on public.profiles
-for insert
-to authenticated
-with check (auth.uid() = id);
-
-drop policy if exists "profiles_update_own_or_admin" on public.profiles;
-create policy "profiles_update_own_or_admin"
-on public.profiles
-for update
-to authenticated
-using (
-  auth.uid() = id
-  or public.is_current_user_admin()
-)
-with check (
-  auth.uid() = id
-  or public.is_current_user_admin()
-);

@@ -38,21 +38,21 @@ alter table public.profiles add column if not exists created_at timestamptz defa
 update public.profiles as profiles
 set
   email = coalesce(nullif(profiles.email, ''), users.email, ''),
-  username = coalesce(nullif(username, ''), '회원'),
-  name = coalesce(name, ''),
-  korean_subject = coalesce(nullif(korean_subject, ''), '화법과 작문'),
-  math_subject = coalesce(nullif(math_subject, ''), '미적분'),
-  english_choice = coalesce(nullif(english_choice, ''), '응시함'),
-  inquiry1_subject = coalesce(nullif(inquiry1_subject, ''), '응시하지 않음'),
-  inquiry2_subject = coalesce(nullif(inquiry2_subject, ''), '응시하지 않음'),
-  second_foreign_subject = coalesce(nullif(second_foreign_subject, ''), '응시하지 않음'),
-  is_admin = coalesce(is_admin, false),
+  username = coalesce(nullif(profiles.username, ''), '회원'),
+  name = coalesce(profiles.name, ''),
+  korean_subject = coalesce(nullif(profiles.korean_subject, ''), '화법과 작문'),
+  math_subject = coalesce(nullif(profiles.math_subject, ''), '미적분'),
+  english_choice = coalesce(nullif(profiles.english_choice, ''), '응시함'),
+  inquiry1_subject = coalesce(nullif(profiles.inquiry1_subject, ''), '응시하지 않음'),
+  inquiry2_subject = coalesce(nullif(profiles.inquiry2_subject, ''), '응시하지 않음'),
+  second_foreign_subject = coalesce(nullif(profiles.second_foreign_subject, ''), '응시하지 않음'),
+  is_admin = coalesce(profiles.is_admin, false),
   role = case
-    when role in ('member', 'sub_admin', 'admin') then role
-    when is_admin = true then 'admin'
+    when profiles.role in ('member', 'sub_admin', 'admin') then profiles.role
+    when profiles.is_admin = true then 'admin'
     else 'member'
   end,
-  is_approved = coalesce(is_approved, false),
+  is_approved = coalesce(profiles.is_approved, false),
   created_at = coalesce(profiles.created_at, users.created_at, now())
 from auth.users as users
 where profiles.id = users.id;
@@ -95,19 +95,19 @@ create or replace function public.profile_meta_int(meta jsonb, key text)
 returns integer
 language sql
 immutable
-as $$
+as '
   select case
-    when meta ->> key ~ '^[0-9]+$' then (meta ->> key)::integer
+    when meta ->> key ~ ''^[0-9]+$'' then (meta ->> key)::integer
     else null
   end
-$$;
+';
 
 create or replace function public.handle_new_user_profile()
 returns trigger
 language plpgsql
 security definer
 set search_path = public
-as $$
+as '
 begin
   insert into public.profiles (
     id,
@@ -130,20 +130,20 @@ begin
   )
   values (
     new.id,
-    coalesce(new.email, ''),
-    coalesce(nullif(new.raw_user_meta_data ->> 'username', ''), split_part(coalesce(new.email, ''), '@', 1), '회원'),
-    coalesce(new.raw_user_meta_data ->> 'name', ''),
-    public.profile_meta_int(new.raw_user_meta_data, 'grade'),
-    public.profile_meta_int(new.raw_user_meta_data, 'class_no'),
-    public.profile_meta_int(new.raw_user_meta_data, 'student_no'),
-    coalesce(nullif(new.raw_user_meta_data ->> 'korean_subject', ''), '화법과 작문'),
-    coalesce(nullif(new.raw_user_meta_data ->> 'math_subject', ''), '미적분'),
-    coalesce(nullif(new.raw_user_meta_data ->> 'english_choice', ''), '응시함'),
-    coalesce(nullif(new.raw_user_meta_data ->> 'inquiry1_subject', ''), '응시하지 않음'),
-    coalesce(nullif(new.raw_user_meta_data ->> 'inquiry2_subject', ''), '응시하지 않음'),
-    coalesce(nullif(new.raw_user_meta_data ->> 'second_foreign_subject', ''), '응시하지 않음'),
+    coalesce(new.email, ''''),
+    coalesce(nullif(new.raw_user_meta_data ->> ''username'', ''''), split_part(coalesce(new.email, ''''), ''@'', 1), ''회원''),
+    coalesce(new.raw_user_meta_data ->> ''name'', ''''),
+    public.profile_meta_int(new.raw_user_meta_data, ''grade''),
+    public.profile_meta_int(new.raw_user_meta_data, ''class_no''),
+    public.profile_meta_int(new.raw_user_meta_data, ''student_no''),
+    coalesce(nullif(new.raw_user_meta_data ->> ''korean_subject'', ''''), ''화법과 작문''),
+    coalesce(nullif(new.raw_user_meta_data ->> ''math_subject'', ''''), ''미적분''),
+    coalesce(nullif(new.raw_user_meta_data ->> ''english_choice'', ''''), ''응시함''),
+    coalesce(nullif(new.raw_user_meta_data ->> ''inquiry1_subject'', ''''), ''응시하지 않음''),
+    coalesce(nullif(new.raw_user_meta_data ->> ''inquiry2_subject'', ''''), ''응시하지 않음''),
+    coalesce(nullif(new.raw_user_meta_data ->> ''second_foreign_subject'', ''''), ''응시하지 않음''),
     false,
-    'member',
+    ''member'',
     false,
     coalesce(new.created_at, now())
   )
@@ -151,7 +151,7 @@ begin
 
   return new;
 end;
-$$;
+';
 
 drop trigger if exists on_auth_user_created_profile on auth.users;
 create trigger on_auth_user_created_profile
@@ -165,14 +165,14 @@ language sql
 stable
 security definer
 set search_path = public
-as $$
+as '
   select exists (
     select 1
     from public.profiles
     where id = auth.uid()
-      and (is_admin = true or role = 'admin')
+      and (is_admin = true or role = ''admin'')
   )
-$$;
+';
 
 create or replace function public.is_current_user_staff()
 returns boolean
@@ -180,55 +180,130 @@ language sql
 stable
 security definer
 set search_path = public
-as $$
+as '
   select exists (
     select 1
     from public.profiles
     where id = auth.uid()
-      and (is_admin = true or role in ('admin', 'sub_admin'))
+      and (is_admin = true or role in (''admin'', ''sub_admin''))
   )
-$$;
+';
+
+create or replace function public.is_current_user_sub_admin()
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as '
+  select exists (
+    select 1
+    from public.profiles
+    where id = auth.uid()
+      and is_admin = false
+      and role = ''sub_admin''
+  )
+';
 
 grant execute on function public.is_current_user_admin() to authenticated;
 grant execute on function public.is_current_user_staff() to authenticated;
+grant execute on function public.is_current_user_sub_admin() to authenticated;
 
 create or replace function public.approve_profile(target_profile_id uuid, next_role text default 'member')
 returns void
 language plpgsql
 security definer
 set search_path = public
-as $$
+as '
 declare
-  caller_is_admin boolean;
   caller_is_staff boolean;
-  normalized_role text;
 begin
-  caller_is_admin := public.is_current_user_admin();
   caller_is_staff := public.is_current_user_staff();
-  normalized_role := coalesce(nullif(next_role, ''), 'member');
 
   if not caller_is_staff then
-    raise exception '관리자 또는 부관리자만 회원을 승인할 수 있습니다.';
-  end if;
-
-  if normalized_role not in ('member', 'sub_admin', 'admin') then
-    raise exception '알 수 없는 권한입니다.';
-  end if;
-
-  if normalized_role <> 'member' and not caller_is_admin then
-    raise exception '부관리자 이상 권한 지정은 관리자만 할 수 있습니다.';
+    raise exception ''관리자 또는 부관리자만 회원을 승인할 수 있습니다.'';
   end if;
 
   update public.profiles
   set
     is_approved = true,
-    role = normalized_role,
-    is_admin = normalized_role = 'admin'
-  where id = target_profile_id;
+    role = ''member'',
+    is_admin = false
+  where id = target_profile_id
+    and coalesce(is_approved, false) = false
+    and coalesce(role, ''member'') = ''member''
+    and coalesce(is_admin, false) = false;
+
+  if not found then
+    raise exception ''승인 가능한 회원을 찾을 수 없습니다.'';
+  end if;
 end;
-$$;
+';
 
 grant execute on function public.approve_profile(uuid, text) to authenticated;
+
+create or replace function public.promote_profile_role(target_profile_id uuid, next_role text)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as '
+declare
+  caller_role text;
+  target_role text;
+  normalized_role text;
+begin
+  select case
+    when is_admin = true or role = ''admin'' then ''admin''
+    when role = ''sub_admin'' then ''sub_admin''
+    else ''member''
+  end
+  into caller_role
+  from public.profiles
+  where id = auth.uid();
+
+  select case
+    when is_admin = true or role = ''admin'' then ''admin''
+    when role = ''sub_admin'' then ''sub_admin''
+    else ''member''
+  end
+  into target_role
+  from public.profiles
+  where id = target_profile_id
+    and is_approved = true
+  for update;
+
+  normalized_role := coalesce(next_role, ''member'');
+
+  if coalesce(caller_role, ''member'') not in (''admin'', ''sub_admin'') then
+    raise exception ''관리자 또는 부관리자만 회원 권한을 관리할 수 있습니다.'';
+  end if;
+
+  if target_role is null then
+    raise exception ''관리 가능한 회원을 찾을 수 없습니다.'';
+  end if;
+
+  if caller_role = ''sub_admin'' and not (target_role = ''member'' and normalized_role = ''sub_admin'') then
+    raise exception ''부관리자는 일반 회원만 부관리자로 승격할 수 있습니다.'';
+  end if;
+
+  if caller_role = ''admin'' and not (
+    (target_role = ''member'' and normalized_role = ''sub_admin'')
+    or (target_role = ''sub_admin'' and normalized_role = ''admin'')
+  ) then
+    raise exception ''관리자는 일반 회원 또는 부관리자만 단계적으로 승격할 수 있습니다.'';
+  end if;
+
+  update public.profiles
+  set
+    role = normalized_role,
+    is_admin = normalized_role = ''admin'',
+    is_approved = true
+  where id = target_profile_id;
+end;
+';
+
+grant execute on function public.promote_profile_role(uuid, text) to authenticated;
 
 insert into public.profiles (
   id,
@@ -282,7 +357,12 @@ for select
 to authenticated
 using (
   auth.uid() = id
-  or public.is_current_user_staff()
+  or public.is_current_user_admin()
+  or (
+    public.is_current_user_sub_admin()
+    and coalesce(role, 'member') = 'member'
+    and coalesce(is_admin, false) = false
+  )
 );
 
 drop policy if exists "profiles_insert_own" on public.profiles;
