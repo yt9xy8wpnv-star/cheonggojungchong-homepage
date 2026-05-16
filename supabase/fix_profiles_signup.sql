@@ -11,6 +11,7 @@ alter table public.profiles add column if not exists inquiry1_subject text defau
 alter table public.profiles add column if not exists inquiry2_subject text default '응시하지 않음';
 alter table public.profiles add column if not exists second_foreign_subject text default '응시하지 않음';
 alter table public.profiles add column if not exists is_admin boolean default false;
+alter table public.profiles add column if not exists role text default 'member';
 alter table public.profiles add column if not exists is_approved boolean default false;
 alter table public.profiles add column if not exists created_at timestamptz default now();
 
@@ -26,6 +27,11 @@ set
   inquiry2_subject = coalesce(nullif(profiles.inquiry2_subject, ''), users.raw_user_meta_data ->> 'inquiry2_subject', '응시하지 않음'),
   second_foreign_subject = coalesce(nullif(profiles.second_foreign_subject, ''), users.raw_user_meta_data ->> 'second_foreign_subject', '응시하지 않음'),
   is_admin = coalesce(profiles.is_admin, false),
+  role = case
+    when profiles.role in ('member', 'sub_admin', 'admin') then profiles.role
+    when profiles.is_admin = true then 'admin'
+    else 'member'
+  end,
   is_approved = coalesce(profiles.is_approved, false),
   created_at = coalesce(profiles.created_at, users.created_at, now())
 from auth.users as users
@@ -41,6 +47,7 @@ alter table public.profiles alter column inquiry1_subject set default '응시하
 alter table public.profiles alter column inquiry2_subject set default '응시하지 않음';
 alter table public.profiles alter column second_foreign_subject set default '응시하지 않음';
 alter table public.profiles alter column is_admin set default false;
+alter table public.profiles alter column role set default 'member';
 alter table public.profiles alter column is_approved set default false;
 alter table public.profiles alter column created_at set default now();
 
@@ -54,6 +61,7 @@ alter table public.profiles alter column inquiry1_subject set not null;
 alter table public.profiles alter column inquiry2_subject set not null;
 alter table public.profiles alter column second_foreign_subject set not null;
 alter table public.profiles alter column is_admin set not null;
+alter table public.profiles alter column role set not null;
 alter table public.profiles alter column is_approved set not null;
 alter table public.profiles alter column created_at set not null;
 
@@ -79,6 +87,7 @@ begin
     inquiry2_subject,
     second_foreign_subject,
     is_admin,
+    role,
     is_approved,
     created_at
   )
@@ -97,6 +106,7 @@ begin
     coalesce(nullif(new.raw_user_meta_data ->> 'inquiry2_subject', ''), '응시하지 않음'),
     coalesce(nullif(new.raw_user_meta_data ->> 'second_foreign_subject', ''), '응시하지 않음'),
     false,
+    'member',
     false,
     coalesce(new.created_at, now())
   )
@@ -128,6 +138,7 @@ insert into public.profiles (
   inquiry2_subject,
   second_foreign_subject,
   is_admin,
+  role,
   is_approved,
   created_at
 )
@@ -146,6 +157,7 @@ select
   coalesce(nullif(users.raw_user_meta_data ->> 'inquiry2_subject', ''), '응시하지 않음'),
   coalesce(nullif(users.raw_user_meta_data ->> 'second_foreign_subject', ''), '응시하지 않음'),
   false,
+  'member',
   false,
   coalesce(users.created_at, now())
 from auth.users as users

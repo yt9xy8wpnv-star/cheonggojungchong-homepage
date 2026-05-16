@@ -1,22 +1,32 @@
 import { createClient } from '@supabase/supabase-js'
 import { BrowserRouter, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom'
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { universityDepartments } from './data/universityDepartments'
 
 type ProfileRow = {
+  email: string | null
   username: string
   name: string
   grade: number | null
   class_no: number | null
   student_no: number | null
+  korean_subject: string | null
+  math_subject: string | null
+  english_choice: string | null
+  inquiry1_subject: string | null
+  inquiry2_subject: string | null
+  second_foreign_subject: string | null
   created_at: string | null
   is_admin: boolean
   is_approved: boolean
+  role: UserRole | null
 }
 
 type ApprovalProfileRow = ProfileRow & {
   id: string
 }
+
+type MemberProfileRow = ApprovalProfileRow
 
 type SignupSubjectSelections = {
   korean: string
@@ -77,6 +87,8 @@ type StudyTimerRow = {
   updated_at: string | null
 }
 
+type UserRole = 'member' | 'sub_admin' | 'admin'
+
 const viteEnv =
   typeof import.meta !== 'undefined' &&
   import.meta &&
@@ -89,6 +101,35 @@ const supabaseUrl = viteEnv?.VITE_SUPABASE_URL ?? ''
 const supabaseKey = viteEnv?.VITE_SUPABASE_PUBLISHABLE_KEY ?? ''
 const supabaseEnabled = Boolean(supabaseUrl && supabaseKey)
 const supabase = supabaseEnabled ? createClient(supabaseUrl, supabaseKey) : null
+
+function normalizeUserRole(role: unknown, legacyIsAdmin = false): UserRole {
+  if (role === 'admin' || legacyIsAdmin) return 'admin'
+  if (role === 'sub_admin') return 'sub_admin'
+  return 'member'
+}
+
+function getRoleLabel(role: UserRole, approved: boolean) {
+  if (role === 'admin') return '관리자'
+  if (role === 'sub_admin') return '부관리자'
+  return approved ? '일반 회원' : '승인 대기'
+}
+
+function formatStudentInfo(profile: Pick<ProfileRow, 'grade' | 'class_no' | 'student_no'>) {
+  return [profile.grade, profile.class_no, profile.student_no].every((value) => value !== null)
+    ? `${profile.grade}학년 ${profile.class_no}반 ${profile.student_no}번`
+    : '-'
+}
+
+function getProfileSubjectRows(profile: ProfileRow) {
+  return [
+    ['국어', profile.korean_subject || '-'],
+    ['수학', profile.math_subject || '-'],
+    ['영어', profile.english_choice || '-'],
+    ['탐구1', profile.inquiry1_subject || '-'],
+    ['탐구2', profile.inquiry2_subject || '-'],
+    ['제2외국어', profile.second_foreign_subject || '-'],
+  ] as const
+}
 
 const koreanOptions = ['화법과 작문', '언어와 매체']
 const mathOptions = ['미적분', '확률과 통계', '기하']
@@ -235,7 +276,7 @@ const admissionRows = [
 const serviceCards = [
   ['All About 정시', '입시 정보와 핵심 자료를 정리해 보는 서비스', '/jeongsi-info'],
   ['study with 정시', '학습 루틴과 집중 흐름을 관리하는 서비스', '/service/study-with-jeongsi'],
-  ['발전기금', '청고정총의 활동을 후원하는 안내 공간', '/service/fund'],
+  ['정시 파출소', '정시 준비 중 막히는 지점을 점검하고 도움을 받는 공간', '/service/fund'],
   ['굿즈샵', '단체 굿즈와 상징 아이템을 확인하는 공간', '/service/goods'],
 ] as const
 
@@ -255,9 +296,17 @@ const introMenu = [
 const serviceMenu = [
   ['All about 정시', '/jeongsi-info'],
   ['study with 정시', '/service/study-with-jeongsi'],
-  ['발전기금', '/service/fund'],
+  ['정시 파출소', '/service/fund'],
   ['굿즈샵', '/service/goods'],
   ['photo booth', '/service/photo-booth'],
+] as const
+
+const policeStationButtons = [
+  ['성적 신고 접수', '5월 학력평가 풀서비스에서 등급컷과 성적 입력을 확인해.', '/jeongsi-info/may-full-service'],
+  ['목표대학 순찰', '마이페이지에서 목표 대학과 과목별 목표 등급을 점검해.', '/mypage'],
+  ['공부 루틴 단속', 'study with 정시에서 오늘 공부 흐름과 누적 시간을 관리해.', '/service/study-with-jeongsi'],
+  ['입시 정보 조회', 'All About 정시에서 일정과 핵심 자료를 다시 확인해.', '/jeongsi-info'],
+  ['도움 요청하기', '자유게시판에서 막히는 지점을 공유하고 같이 해결해.', '/notice/community'],
 ] as const
 
 const communityMenu = [['커뮤니티', '/notice/community']] as const
@@ -395,11 +444,20 @@ function AppShell() {
   const [showProfilePassword, setShowProfilePassword] = useState(false)
   const [showProfilePasswordConfirm, setShowProfilePasswordConfirm] = useState(false)
   const [isAdmin, setIsAdmin] = useState(false)
+  const [isSubAdmin, setIsSubAdmin] = useState(false)
+  const [currentRole, setCurrentRole] = useState<UserRole>('member')
   const [isApproved, setIsApproved] = useState(false)
   const [approvalProfiles, setApprovalProfiles] = useState<ApprovalProfileRow[]>([])
   const [approvalLoading, setApprovalLoading] = useState(false)
   const [approvalMessage, setApprovalMessage] = useState('')
   const [approvingProfileId, setApprovingProfileId] = useState<string | null>(null)
+  const [expandedApprovalProfileId, setExpandedApprovalProfileId] = useState<string | null>(null)
+  const [memberProfiles, setMemberProfiles] = useState<MemberProfileRow[]>([])
+  const [memberLoading, setMemberLoading] = useState(false)
+  const [memberMessage, setMemberMessage] = useState('')
+  const [promotingProfileId, setPromotingProfileId] = useState<string | null>(null)
+  const [expandedMemberProfileId, setExpandedMemberProfileId] = useState<string | null>(null)
+  const canManageApprovals = isAdmin || isSubAdmin
 
   const [studySeconds, setStudySeconds] = useState(0)
   const [studyRunning, setStudyRunning] = useState(false)
@@ -462,6 +520,8 @@ function AppShell() {
     setProfileEditSubjects(initialSignupSubjectSelections)
     setProfileEditMessage('')
     setIsAdmin(false)
+    setIsSubAdmin(false)
+    setCurrentRole('member')
     setIsApproved(false)
     setApprovalProfiles([])
     setApprovalMessage('')
@@ -496,6 +556,8 @@ function AppShell() {
       setProfileEditUsername(email.split('@')[0] || email)
       setProfileEditSubjects(initialSignupSubjectSelections)
       setIsAdmin(false)
+      setIsSubAdmin(false)
+      setCurrentRole('member')
       setIsApproved(false)
       return
     }
@@ -511,7 +573,7 @@ function AppShell() {
 
     const { data, error } = await supabase
       .from('profiles')
-      .select('username, name, grade, class_no, student_no, created_at, is_admin, is_approved')
+      .select('username, name, grade, class_no, student_no, created_at, is_admin, is_approved, role')
       .eq('id', userId)
       .maybeSingle<ProfileRow>()
 
@@ -529,6 +591,8 @@ function AppShell() {
       setProfileEditUsername(fallbackUsername)
       setProfileEditSubjects(subjectSelections)
       setIsAdmin(false)
+      setIsSubAdmin(false)
+      setCurrentRole('member')
       setIsApproved(false)
       return
     }
@@ -543,7 +607,10 @@ function AppShell() {
     setCurrentSubjectSelections(subjectSelections)
     setProfileEditUsername(data.username)
     setProfileEditSubjects(subjectSelections)
-    setIsAdmin(data.is_admin)
+    const role = normalizeUserRole(data.role, data.is_admin)
+    setCurrentRole(role)
+    setIsAdmin(role === 'admin')
+    setIsSubAdmin(role === 'sub_admin')
     setIsApproved(data.is_approved)
   }
 
@@ -794,6 +861,7 @@ function AppShell() {
       inquiry2_subject: String(meta.inquiry2_subject ?? initialSignupSubjectSelections.inquiry2),
       second_foreign_subject: String(meta.second_foreign_subject ?? initialSignupSubjectSelections.secondForeign),
       is_admin: false,
+      role: 'member',
       is_approved: false,
       created_at: user.created_at ?? new Date().toISOString(),
     })
@@ -1120,10 +1188,10 @@ function AppShell() {
   }, [displayStudyLeaderboard])
 
   useEffect(() => {
-    if (!isAdmin || location.pathname !== '/admin/approvals') return
+    if (!canManageApprovals || location.pathname !== '/admin/approvals') return
 
     void fetchApprovalProfiles()
-  }, [isAdmin, location.pathname])
+  }, [canManageApprovals, location.pathname])
 
   useEffect(() => {
     if (!isLoggedIn || !currentUserId) return
@@ -1253,14 +1321,14 @@ function AppShell() {
   }
 
   async function fetchApprovalProfiles() {
-    if (!supabase || !isLoggedIn || !isAdmin) return
+    if (!supabase || !isLoggedIn || !canManageApprovals) return
 
     setApprovalLoading(true)
     setApprovalMessage('')
     try {
       const { data, error } = await supabase
         .from('profiles')
-        .select('id, username, name, grade, class_no, student_no, created_at, is_admin, is_approved')
+        .select('id, username, name, grade, class_no, student_no, created_at, is_admin, is_approved, role')
         .or('is_approved.eq.false,is_approved.is.null')
         .order('created_at', { ascending: false })
 
@@ -1275,24 +1343,28 @@ function AppShell() {
     }
   }
 
-  async function handleApproveProfile(profileId: string) {
-    if (!supabase || !isLoggedIn || !isAdmin) {
-      setApprovalMessage('관리자만 회원을 승인할 수 있습니다.')
+  async function handleApproveProfile(profileId: string, nextRole: UserRole = 'member') {
+    if (!supabase || !isLoggedIn || !canManageApprovals) {
+      setApprovalMessage('관리자 또는 부관리자만 회원을 승인할 수 있습니다.')
+      return
+    }
+    if (nextRole !== 'member' && !isAdmin) {
+      setApprovalMessage('부관리자 지정은 관리자만 할 수 있습니다.')
       return
     }
 
     setApprovingProfileId(profileId)
     setApprovalMessage('')
     try {
-      const { error } = await supabase
-        .from('profiles')
-        .update({ is_approved: true })
-        .eq('id', profileId)
+      const { error } = await supabase.rpc('approve_profile', {
+        target_profile_id: profileId,
+        next_role: nextRole,
+      })
 
       if (error) throw error
 
       setApprovalProfiles((prev) => prev.filter((profile) => profile.id !== profileId))
-      setApprovalMessage('회원 승인이 완료되었습니다.')
+      setApprovalMessage(nextRole === 'sub_admin' ? '부관리자 승인이 완료되었습니다.' : '회원 승인이 완료되었습니다.')
     } catch (error) {
       const message = typeof error === 'object' && error !== null && 'message' in error ? String((error as { message?: unknown }).message ?? '알 수 없는 오류') : '알 수 없는 오류'
       setApprovalMessage(`회원 승인 실패: ${message}`)
@@ -1731,9 +1803,47 @@ function AppShell() {
     )
   }
 
+  function renderApprovalRequiredPage() {
+    return (
+      <SectionShell eyebrow="APPROVAL REQUIRED" title="회원가입 승인 대기 중입니다" description="관리자 승인 전에는 일부 회원 전용 기능 이용이 제한됩니다. 승인이 완료되면 바로 이용할 수 있어요.">
+        <div className="rounded-[1.5rem] border border-slate-200 bg-slate-50 p-6">
+          <div className="text-base font-semibold text-slate-800">아직 관리자 승인이 완료되지 않았습니다.</div>
+          <p className="mt-2 text-sm leading-relaxed text-slate-600">
+            가입 정보 확인은 마이페이지에서 가능하고, 정시 정보·스터디·커뮤니티 같은 주요 기능은 승인 후 열립니다.
+          </p>
+          <div className="mt-5 flex flex-col gap-3 sm:flex-row">
+            <button
+              onClick={() => navigate('/mypage')}
+              className="rounded-2xl bg-blue-700 px-6 py-3 text-sm font-semibold text-white shadow-lg shadow-blue-700/20 transition hover:bg-blue-800"
+            >
+              마이페이지로 이동
+            </button>
+            <button
+              onClick={() => navigate('/')}
+              className="rounded-2xl border border-slate-300 bg-white px-6 py-3 text-sm font-semibold text-slate-800 transition hover:border-blue-300 hover:text-blue-700"
+            >
+              홈으로 이동
+            </button>
+          </div>
+        </div>
+      </SectionShell>
+    )
+  }
+
   function requireLogin(renderChildren: () => ReactNode) {
     if (!isLoggedIn) {
       return renderLoginRequiredPage()
+    }
+
+    return <>{renderChildren()}</>
+  }
+
+  function requireApproved(renderChildren: () => ReactNode) {
+    if (!isLoggedIn) {
+      return renderLoginRequiredPage()
+    }
+    if (!isApproved && !canManageApprovals) {
+      return renderApprovalRequiredPage()
     }
 
     return <>{renderChildren()}</>
@@ -2149,7 +2259,7 @@ function AppShell() {
 
     const accountRows = [
       ['아이디', currentUsername || '-'],
-      ['현재 등급', isAdmin ? '관리자' : isApproved ? '승인 회원' : '승인 대기'],
+      ['현재 등급', getRoleLabel(currentRole, isApproved)],
       ['학번 정보', [currentGrade, currentClassNo, currentStudentNo].every((value) => value !== null) ? `${currentGrade}학년 ${currentClassNo}반 ${currentStudentNo}번` : '-'],
       ['가입일', formatJoinedDate(currentJoinedAt)],
     ] as const
@@ -2224,7 +2334,7 @@ function AppShell() {
             <button onClick={handleLogout} className="rounded-2xl border border-slate-300 px-5 py-3 text-sm font-semibold text-slate-800 transition hover:border-red-300 hover:text-red-700">
               로그아웃
             </button>
-            {isAdmin && (
+            {canManageApprovals && (
               <button onClick={() => navigate('/admin/approvals')} className="rounded-2xl bg-blue-700 px-5 py-3 text-sm font-semibold text-white transition hover:bg-blue-800">
                 회원가입 승인
               </button>
@@ -2391,16 +2501,16 @@ function AppShell() {
       return <Navigate to="/login" replace />
     }
 
-    if (!isAdmin) {
+    if (!canManageApprovals) {
       return (
-        <SectionShell eyebrow="ADMIN" title="회원가입 승인" description="관리자 권한이 있는 계정만 접근할 수 있는 페이지야.">
+        <SectionShell eyebrow="ADMIN" title="회원가입 승인" description="관리자 또는 부관리자 권한이 있는 계정만 접근할 수 있는 페이지야.">
           <div className="rounded-[1.5rem] border border-slate-200 bg-slate-50 p-6 text-slate-600">관리자 권한이 확인되지 않았습니다.</div>
         </SectionShell>
       )
     }
 
     return (
-      <SectionShell eyebrow="ADMIN" title="회원가입 승인" description="승인 대기 중인 회원을 확인하고 가입을 승인할 수 있는 관리자 화면이야." wide>
+      <SectionShell eyebrow="ADMIN" title="회원가입 승인" description="승인 대기 중인 회원을 확인하고 가입을 승인할 수 있는 관리자 화면이야. 부관리자도 이 화면을 이용할 수 있어." wide>
         <div className="space-y-5">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="text-sm font-semibold text-slate-500">
@@ -2434,6 +2544,7 @@ function AppShell() {
                       <th className="px-5 py-4 text-sm font-bold">아이디</th>
                       <th className="px-5 py-4 text-sm font-bold">이름</th>
                       <th className="px-5 py-4 text-sm font-bold">학번</th>
+                      <th className="px-5 py-4 text-sm font-bold">권한</th>
                       <th className="px-5 py-4 text-sm font-bold">가입일</th>
                       <th className="px-5 py-4 text-sm font-bold">처리</th>
                     </tr>
@@ -2448,6 +2559,7 @@ function AppShell() {
                             ? `${profile.grade}학년 ${profile.class_no}반 ${profile.student_no}번`
                             : '-'}
                         </td>
+                        <td className="px-5 py-4 text-sm">{getRoleLabel(normalizeUserRole(profile.role, profile.is_admin), Boolean(profile.is_approved))}</td>
                         <td className="px-5 py-4 text-sm">{formatJoinedDate(profile.created_at ?? '')}</td>
                         <td className="px-5 py-4">
                           <button
@@ -2457,6 +2569,15 @@ function AppShell() {
                           >
                             {approvingProfileId === profile.id ? '승인 중...' : '승인'}
                           </button>
+                          {isAdmin && (
+                            <button
+                              onClick={() => handleApproveProfile(profile.id, 'sub_admin')}
+                              disabled={approvingProfileId === profile.id}
+                              className="ml-2 rounded-2xl border border-blue-200 bg-blue-50 px-4 py-2.5 text-sm font-semibold text-blue-700 transition hover:border-blue-300 hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-60"
+                            >
+                              부관리자로 승인
+                            </button>
+                          )}
                         </td>
                       </tr>
                     ))}
@@ -2864,8 +2985,24 @@ function AppShell() {
 
   function FundPage() {
     return (
-      <SectionShell eyebrow="SERVICE" title="발전기금" description="청고정총 활동을 후원하고 지원하는 안내 페이지야.">
-        <div className="rounded-[1.5rem] border border-slate-200 bg-slate-50 p-6 text-slate-600">발전기금 안내를 여기에 연결할 수 있어.</div>
+      <SectionShell eyebrow="SERVICE" title="정시 파출소" description="정시 준비 중 막히는 지점을 점검하고 필요한 도움을 받을 수 있는 공간이야." wide>
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+          {policeStationButtons.map(([title, description, path], index) => (
+            <button
+              key={title}
+              type="button"
+              onClick={() => navigate(path)}
+              className="group flex min-h-48 flex-col rounded-[1.5rem] border border-slate-200 bg-white p-5 text-left shadow-sm transition hover:-translate-y-1 hover:border-blue-200 hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-blue-300"
+            >
+              <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-blue-50 text-sm font-black text-blue-700 transition group-hover:bg-blue-700 group-hover:text-white">
+                {String(index + 1).padStart(2, '0')}
+              </div>
+              <div className="mt-5 text-xl font-black tracking-tight text-slate-900">{title}</div>
+              <div className="mt-3 flex-1 text-sm leading-relaxed text-slate-600">{description}</div>
+              <div className="mt-5 text-sm font-black text-blue-700 transition group-hover:translate-x-1">출동하기</div>
+            </button>
+          ))}
+        </div>
       </SectionShell>
     )
   }
@@ -3040,16 +3177,16 @@ function AppShell() {
           <Route path="/about/location" element={LocationPage()} />
           <Route path="/login" element={loginPageElement} />
           <Route path="/signup" element={signupPageElement} />
-          <Route path="/jeongsi-info" element={requireLogin(() => JeongsiPage())} />
-          <Route path="/jeongsi-info/may-full-service" element={requireLogin(() => MayFullServicePage())} />
-          <Route path="/service/study-with-jeongsi" element={requireLogin(() => StudyWithJeongsiPage())} />
-          <Route path="/service/fund" element={requireLogin(() => FundPage())} />
-          <Route path="/service/goods" element={requireLogin(() => GoodsPage())} />
-          <Route path="/service/photo-booth" element={requireLogin(() => PhotoBoothPage())} />
+          <Route path="/jeongsi-info" element={requireApproved(() => JeongsiPage())} />
+          <Route path="/jeongsi-info/may-full-service" element={requireApproved(() => MayFullServicePage())} />
+          <Route path="/service/study-with-jeongsi" element={requireApproved(() => StudyWithJeongsiPage())} />
+          <Route path="/service/fund" element={requireApproved(() => FundPage())} />
+          <Route path="/service/goods" element={requireApproved(() => GoodsPage())} />
+          <Route path="/service/photo-booth" element={requireApproved(() => PhotoBoothPage())} />
           <Route path="/mypage" element={requireLogin(() => MyPage())} />
           <Route path="/admin/approvals" element={requireLogin(() => AdminApprovalsPage())} />
           <Route path="/notice" element={NoticePage()} />
-          <Route path="/notice/community" element={requireLogin(() => CommunityPage())} />
+          <Route path="/notice/community" element={requireApproved(() => CommunityPage())} />
           <Route path="/notice/press" element={PressPage()} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
