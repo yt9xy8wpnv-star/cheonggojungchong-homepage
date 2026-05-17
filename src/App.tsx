@@ -1334,8 +1334,8 @@ function AppShell() {
     const { error } = await client.from('study_timer_status').upsert(
       {
         user_id: currentUserId,
-        username: currentUsername || currentUserEmail.split('@')[0] || 'user',
-        name: currentName || null,
+        username: (currentUsername || currentUserEmail.split('@')[0] || 'user').trim(),
+        name: currentName.trim() || null,
         current_seconds: next.currentSeconds,
         is_running: next.isRunning,
         current_subject: next.currentSubject,
@@ -1356,8 +1356,8 @@ function AppShell() {
 
     const updatedAt = new Date().toISOString()
     const payload = {
-      username: currentUsername || currentUserEmail.split('@')[0] || 'user',
-      name: currentName || null,
+      username: (currentUsername || currentUserEmail.split('@')[0] || 'user').trim(),
+      name: currentName.trim() || null,
       current_seconds: 0,
       is_running: false,
       current_subject: currentSubject,
@@ -1570,8 +1570,8 @@ function AppShell() {
     setStudyLeaderboard((prev) => {
       const currentRow: StudyTimerRow = {
         user_id: currentUserId,
-        username: currentUsername || currentUserEmail.split('@')[0] || null,
-        name: currentName || null,
+        username: (currentUsername || currentUserEmail.split('@')[0] || '').trim() || null,
+        name: currentName.trim() || null,
         current_seconds: studySeconds,
         is_running: studyRunning,
         current_subject: currentStudySubject,
@@ -2323,7 +2323,7 @@ function AppShell() {
   }
 
   function getCurrentReporterName() {
-    return currentUsername || currentName || currentUserEmail.split('@')[0] || '회원'
+    return getUserDisplayName(currentName, currentUsername, currentUserEmail)
   }
 
   function getCommunityReportKey(targetType: CommunityReportTargetType, id: number) {
@@ -4975,7 +4975,9 @@ function AppShell() {
   function CommunityPage() {
     const noticePosts = communityPosts.filter((post) => post.isNotice)
     const regularPosts = communityPosts.filter((post) => !post.isNotice)
-    const visibleNoticePosts = communityNoticesExpanded ? noticePosts : noticePosts.slice(0, 1)
+    const collapsedNoticeLimit = 4
+    const canExpandNotices = noticePosts.length >= 5
+    const visibleNoticePosts = canExpandNotices && !communityNoticesExpanded ? noticePosts.slice(0, collapsedNoticeLimit) : noticePosts
     const totalPages = Math.max(1, Math.ceil(regularPosts.length / communityPostsPerPage))
     const safePage = Math.min(communityPage, totalPages)
     const pageStart = (safePage - 1) * communityPostsPerPage
@@ -5014,13 +5016,13 @@ function AppShell() {
                   <div className="text-sm font-black tracking-[0.18em] text-blue-700">NOTICE</div>
                   <div className="mt-1 text-lg font-black tracking-tight text-slate-950">공지사항 {noticePosts.length}</div>
                 </div>
-                {noticePosts.length > 1 && (
+                {canExpandNotices && (
                   <button
                     type="button"
                     onClick={() => setCommunityNoticesExpanded((prev) => !prev)}
                     className="w-fit rounded-2xl border border-blue-200 bg-white px-4 py-2.5 text-sm font-black text-blue-700 transition hover:bg-blue-100"
                   >
-                    {communityNoticesExpanded ? '접기' : `펼치기 (${noticePosts.length - 1})`}
+                    {communityNoticesExpanded ? '접기' : `펼치기 (${noticePosts.length - collapsedNoticeLimit})`}
                   </button>
                 )}
               </div>
@@ -5621,7 +5623,7 @@ function AppShell() {
     )
   }
 
-  const topRightLabel = isLoggedIn ? currentUsername || currentName || currentUserEmail : '로그인'
+  const topRightLabel = isLoggedIn ? getUserDisplayName(currentName, currentUsername, currentUserEmail) : '로그인'
 
   if (!sessionReady) {
     return <div className="flex min-h-screen items-center justify-center bg-slate-100 text-slate-600">불러오는 중...</div>

@@ -27,11 +27,11 @@ export function formatStudyDuration(totalSeconds: number) {
 }
 
 export function getLeaderboardDisplayName(row: Pick<StudyTimerRow, 'username' | 'name' | 'user_id'>) {
-  const username = typeof row.username === 'string' ? row.username.trim() : ''
-  if (username) return username.includes('@') ? username.split('@')[0] : username
-
   const name = typeof row.name === 'string' ? row.name.trim() : ''
   if (name) return name
+
+  const username = typeof row.username === 'string' ? row.username.trim() : ''
+  if (username) return username.includes('@') ? username.split('@')[0] : username
 
   return row.user_id.slice(0, 8)
 }
