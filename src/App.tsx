@@ -71,25 +71,30 @@ type GoalPlan = {
 
 type CommunityPost = {
   id: number
+  authorId: string
   title: string
   content: string
   author: string
   role: UserRole
   createdAt: string
+  updatedAt: string | null
   views: number
 }
 
 type CommunityPostRow = {
   id: number
+  author_id: string | null
   title: string
   content: string
   author_username: string | null
   author_role: UserRole | null
   views: number | null
   created_at: string | null
+  updated_at: string | null
 }
 
 type CommunityReactionKind = 'like' | 'dislike'
+type CommunityReportTargetType = 'post' | 'comment'
 
 type CommunityComment = {
   id: number
@@ -116,6 +121,34 @@ type CommunityCommentRow = {
 type CommunityReactionRow = {
   user_id: string
   reaction: CommunityReactionKind
+}
+
+type CommunityReport = {
+  id: number
+  targetType: CommunityReportTargetType
+  postId: number
+  commentId: number | null
+  reporterId: string
+  reporter: string
+  reporterRole: UserRole
+  targetTitle: string
+  targetContent: string
+  targetAuthor: string
+  createdAt: string
+}
+
+type CommunityReportRow = {
+  id: number
+  target_type: CommunityReportTargetType
+  post_id: number
+  comment_id: number | null
+  reporter_id: string
+  reporter_username: string | null
+  reporter_role: UserRole | null
+  target_title: string | null
+  target_content: string | null
+  target_author_username: string | null
+  created_at: string | null
 }
 
 type GoalPlanRow = {
@@ -462,11 +495,13 @@ const initialCommunityPosts: CommunityPost[] = [
   ['컨디션 관리도 실력인 듯', '잠 줄이면 다음 날 바로 무너져서 요즘은 수면 시간을 먼저 고정하려고 해.', 'SLEEP', 'member', '2026-05-05T18:00:00.000Z', 40],
 ].map(([title, content, author, role, createdAt, views], index, arr) => ({
   id: arr.length - index,
+  authorId: '',
   title: String(title),
   content: String(content),
   author: String(author),
   role: role as UserRole,
   createdAt: String(createdAt),
+  updatedAt: null,
   views: Number(views),
 }))
 
@@ -521,11 +556,13 @@ function goalPlanFromRow(row: GoalPlanRow): GoalPlan {
 function communityPostFromRow(row: CommunityPostRow): CommunityPost {
   return {
     id: Number(row.id),
+    authorId: row.author_id ?? '',
     title: row.title,
     content: row.content,
     author: row.author_username || '회원',
     role: normalizeUserRole(row.author_role),
     createdAt: row.created_at ?? new Date().toISOString(),
+    updatedAt: row.updated_at ?? null,
     views: Number(row.views ?? 0),
   }
 }
@@ -540,6 +577,22 @@ function communityCommentFromRow(row: CommunityCommentRow): CommunityComment {
     content: row.content,
     createdAt: row.created_at ?? new Date().toISOString(),
     updatedAt: row.updated_at,
+  }
+}
+
+function communityReportFromRow(row: CommunityReportRow): CommunityReport {
+  return {
+    id: Number(row.id),
+    targetType: row.target_type,
+    postId: Number(row.post_id),
+    commentId: row.comment_id === null ? null : Number(row.comment_id),
+    reporterId: row.reporter_id,
+    reporter: row.reporter_username || '회원',
+    reporterRole: normalizeUserRole(row.reporter_role),
+    targetTitle: row.target_title || '제목 없음',
+    targetContent: row.target_content || '',
+    targetAuthor: row.target_author_username || '회원',
+    createdAt: row.created_at ?? new Date().toISOString(),
   }
 }
 
@@ -679,6 +732,10 @@ function AppShell() {
   const [communityDetailPost, setCommunityDetailPost] = useState<CommunityPost | null>(null)
   const [communityDetailLoading, setCommunityDetailLoading] = useState(false)
   const [communityDetailMessage, setCommunityDetailMessage] = useState('')
+  const [editingCommunityPost, setEditingCommunityPost] = useState(false)
+  const [editingCommunityPostTitle, setEditingCommunityPostTitle] = useState('')
+  const [editingCommunityPostContent, setEditingCommunityPostContent] = useState('')
+  const [communityPostActionSaving, setCommunityPostActionSaving] = useState(false)
   const [communityComments, setCommunityComments] = useState<CommunityComment[]>([])
   const [communityCommentsLoading, setCommunityCommentsLoading] = useState(false)
   const [communityCommentDraft, setCommunityCommentDraft] = useState('')
@@ -689,6 +746,12 @@ function AppShell() {
   const [communityReactionCounts, setCommunityReactionCounts] = useState({ like: 0, dislike: 0 })
   const [communityUserReaction, setCommunityUserReaction] = useState<CommunityReactionKind | null>(null)
   const [communityReactionSaving, setCommunityReactionSaving] = useState<CommunityReactionKind | null>(null)
+  const [communityReportMessage, setCommunityReportMessage] = useState('')
+  const [communityReportingTarget, setCommunityReportingTarget] = useState<string | null>(null)
+  const [communityReports, setCommunityReports] = useState<CommunityReport[]>([])
+  const [communityReportsLoading, setCommunityReportsLoading] = useState(false)
+  const [communityReportsMessage, setCommunityReportsMessage] = useState('')
+  const [deletingReportedTarget, setDeletingReportedTarget] = useState<string | null>(null)
 
   function resetAuthState() {
     setCurrentUserId('')
@@ -751,6 +814,10 @@ function AppShell() {
     setCommunityDetailPost(null)
     setCommunityDetailMessage('')
     setCommunityDetailLoading(false)
+    setEditingCommunityPost(false)
+    setEditingCommunityPostTitle('')
+    setEditingCommunityPostContent('')
+    setCommunityPostActionSaving(false)
     setCommunityComments([])
     setCommunityCommentsLoading(false)
     setCommunityCommentDraft('')
@@ -761,6 +828,12 @@ function AppShell() {
     setCommunityReactionCounts({ like: 0, dislike: 0 })
     setCommunityUserReaction(null)
     setCommunityReactionSaving(null)
+    setCommunityReportMessage('')
+    setCommunityReportingTarget(null)
+    setCommunityReports([])
+    setCommunityReportsLoading(false)
+    setCommunityReportsMessage('')
+    setDeletingReportedTarget(null)
   }
 
   async function loadProfile(userId: string, email: string, userMeta?: Record<string, unknown>, joinedAt?: string) {
@@ -1449,6 +1522,12 @@ function AppShell() {
   }, [canManageApprovals, location.pathname])
 
   useEffect(() => {
+    if (!canManageApprovals || location.pathname !== '/admin/community-reports') return
+
+    void fetchCommunityReports()
+  }, [canManageApprovals, location.pathname])
+
+  useEffect(() => {
     if (!isLoggedIn || !currentUserId) return
 
     let cancelled = false
@@ -1510,6 +1589,9 @@ function AppShell() {
     if (!match) {
       setCommunityDetailPost(null)
       setCommunityDetailMessage('')
+      setEditingCommunityPost(false)
+      setEditingCommunityPostTitle('')
+      setEditingCommunityPostContent('')
       setCommunityComments([])
       setCommunityCommentDraft('')
       setCommunityCommentMessage('')
@@ -1517,6 +1599,7 @@ function AppShell() {
       setEditingCommunityCommentDraft('')
       setCommunityReactionCounts({ like: 0, dislike: 0 })
       setCommunityUserReaction(null)
+      setCommunityReportMessage('')
       return
     }
     if (!isLoggedIn || !isApproved || isRejected || currentSuspensionActive) return
@@ -1568,7 +1651,7 @@ function AppShell() {
     try {
       const { data, error } = await supabase
         .from('community_posts')
-        .select('id, title, content, author_username, author_role, views, created_at')
+        .select('id, author_id, title, content, author_username, author_role, views, created_at, updated_at')
         .order('created_at', { ascending: false })
         .order('id', { ascending: false })
 
@@ -1603,7 +1686,7 @@ function AppShell() {
     try {
       const { data, error } = await supabase
         .from('community_posts')
-        .select('id, title, content, author_username, author_role, views, created_at')
+        .select('id, author_id, title, content, author_username, author_role, views, created_at, updated_at')
         .eq('id', postId)
         .maybeSingle<CommunityPostRow>()
 
@@ -1658,7 +1741,7 @@ function AppShell() {
           author_username: currentUsername || currentName || currentUserEmail.split('@')[0] || '회원',
           author_role: currentRole,
         })
-        .select('id, title, content, author_username, author_role, views, created_at')
+        .select('id, author_id, title, content, author_username, author_role, views, created_at, updated_at')
         .single<CommunityPostRow>()
 
       if (error) throw error
@@ -1677,6 +1760,97 @@ function AppShell() {
       setCommunityMessage(`글 등록 실패: ${message}`)
     } finally {
       setCommunitySaving(false)
+    }
+  }
+
+  function startCommunityPostEdit(post: CommunityPost) {
+    setEditingCommunityPost(true)
+    setEditingCommunityPostTitle(post.title)
+    setEditingCommunityPostContent(post.content)
+    setCommunityDetailMessage('')
+    setCommunityReportMessage('')
+  }
+
+  async function handleCommunityPostUpdate(postId: number) {
+    const title = editingCommunityPostTitle.trim()
+    const content = editingCommunityPostContent.trim()
+    setCommunityDetailMessage('')
+
+    if (!supabase || !currentUserId) {
+      setCommunityDetailMessage('로그인 후 이용할 수 있어.')
+      return
+    }
+
+    if (!title) {
+      setCommunityDetailMessage('제목을 입력해줘.')
+      return
+    }
+
+    if (!content) {
+      setCommunityDetailMessage('본문 내용을 입력해줘.')
+      return
+    }
+
+    setCommunityPostActionSaving(true)
+    try {
+      const { data, error } = await supabase
+        .from('community_posts')
+        .update({
+          title,
+          content,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', postId)
+        .eq('author_id', currentUserId)
+        .select('id, author_id, title, content, author_username, author_role, views, created_at, updated_at')
+        .single<CommunityPostRow>()
+
+      if (error) throw error
+
+      if (data) {
+        const updatedPost = communityPostFromRow(data)
+        setCommunityDetailPost(updatedPost)
+        setCommunityPosts((prev) => prev.map((post) => (post.id === updatedPost.id ? updatedPost : post)))
+      }
+      setEditingCommunityPost(false)
+      setEditingCommunityPostTitle('')
+      setEditingCommunityPostContent('')
+    } catch (error) {
+      const message = typeof error === 'object' && error !== null && 'message' in error ? String((error as { message?: unknown }).message ?? '알 수 없는 오류') : '알 수 없는 오류'
+      setCommunityDetailMessage(`게시글 수정 실패: ${message}`)
+    } finally {
+      setCommunityPostActionSaving(false)
+    }
+  }
+
+  async function handleCommunityPostDelete(postId: number) {
+    if (!supabase || !currentUserId) {
+      setCommunityDetailMessage('로그인 후 이용할 수 있어.')
+      return
+    }
+
+    if (typeof window !== 'undefined' && !window.confirm('게시글을 삭제할까요? 삭제하면 댓글과 신고 기록도 함께 정리됩니다.')) return
+
+    setCommunityPostActionSaving(true)
+    setCommunityDetailMessage('')
+    try {
+      const { error } = await supabase
+        .from('community_posts')
+        .delete()
+        .eq('id', postId)
+        .eq('author_id', currentUserId)
+
+      if (error) throw error
+
+      setCommunityPosts((prev) => prev.filter((post) => post.id !== postId))
+      setCommunityDetailPost(null)
+      setEditingCommunityPost(false)
+      navigate('/notice/community')
+    } catch (error) {
+      const message = typeof error === 'object' && error !== null && 'message' in error ? String((error as { message?: unknown }).message ?? '알 수 없는 오류') : '알 수 없는 오류'
+      setCommunityDetailMessage(`게시글 삭제 실패: ${message}`)
+    } finally {
+      setCommunityPostActionSaving(false)
     }
   }
 
@@ -1895,6 +2069,138 @@ function AppShell() {
       setCommunityCommentMessage(`댓글 삭제 실패: ${message}`)
     } finally {
       setCommunityCommentSaving(false)
+    }
+  }
+
+  function getCurrentReporterName() {
+    return currentUsername || currentName || currentUserEmail.split('@')[0] || '회원'
+  }
+
+  async function handleCommunityPostReport(post: CommunityPost) {
+    if (!supabase || !currentUserId) {
+      setCommunityReportMessage('로그인 후 신고할 수 있어.')
+      return
+    }
+
+    const targetKey = `post-${post.id}`
+    setCommunityReportingTarget(targetKey)
+    setCommunityReportMessage('')
+    try {
+      const { error } = await supabase
+        .from('community_reports')
+        .insert({
+          reporter_id: currentUserId,
+          reporter_username: getCurrentReporterName(),
+          reporter_role: currentRole,
+          target_type: 'post',
+          post_id: post.id,
+          comment_id: null,
+          target_title: post.title,
+          target_content: post.content.slice(0, 3000),
+          target_author_username: post.author,
+        })
+
+      if (error) throw error
+
+      setCommunityReportMessage('게시글 신고가 접수되었습니다.')
+    } catch (error) {
+      const message = typeof error === 'object' && error !== null && 'message' in error ? String((error as { message?: unknown }).message ?? '알 수 없는 오류') : '알 수 없는 오류'
+      setCommunityReportMessage(message.includes('duplicate key') ? '이미 신고한 게시글입니다.' : `게시글 신고 실패: ${message}`)
+    } finally {
+      setCommunityReportingTarget(null)
+    }
+  }
+
+  async function handleCommunityCommentReport(comment: CommunityComment) {
+    if (!supabase || !currentUserId) {
+      setCommunityCommentMessage('로그인 후 신고할 수 있어.')
+      return
+    }
+
+    const targetKey = `comment-${comment.id}`
+    setCommunityReportingTarget(targetKey)
+    setCommunityCommentMessage('')
+    try {
+      const { error } = await supabase
+        .from('community_reports')
+        .insert({
+          reporter_id: currentUserId,
+          reporter_username: getCurrentReporterName(),
+          reporter_role: currentRole,
+          target_type: 'comment',
+          post_id: comment.postId,
+          comment_id: comment.id,
+          target_title: communityDetailPost?.title ?? '댓글 신고',
+          target_content: comment.content.slice(0, 3000),
+          target_author_username: comment.author,
+        })
+
+      if (error) throw error
+
+      setCommunityCommentMessage('댓글 신고가 접수되었습니다.')
+    } catch (error) {
+      const message = typeof error === 'object' && error !== null && 'message' in error ? String((error as { message?: unknown }).message ?? '알 수 없는 오류') : '알 수 없는 오류'
+      setCommunityCommentMessage(message.includes('duplicate key') ? '이미 신고한 댓글입니다.' : `댓글 신고 실패: ${message}`)
+    } finally {
+      setCommunityReportingTarget(null)
+    }
+  }
+
+  async function fetchCommunityReports() {
+    if (!supabase || !canManageApprovals) return
+
+    setCommunityReportsLoading(true)
+    setCommunityReportsMessage('')
+    try {
+      const { data, error } = await supabase
+        .from('community_reports')
+        .select('id, target_type, post_id, comment_id, reporter_id, reporter_username, reporter_role, target_title, target_content, target_author_username, created_at')
+        .order('created_at', { ascending: false })
+        .order('id', { ascending: false })
+
+      if (error) throw error
+
+      setCommunityReports(((data ?? []) as CommunityReportRow[]).map(communityReportFromRow))
+    } catch (error) {
+      const message = typeof error === 'object' && error !== null && 'message' in error ? String((error as { message?: unknown }).message ?? '알 수 없는 오류') : '알 수 없는 오류'
+      setCommunityReportsMessage(`신고 목록을 불러오지 못했습니다: ${message}`)
+    } finally {
+      setCommunityReportsLoading(false)
+    }
+  }
+
+  async function handleDeleteReportedTarget(report: CommunityReport) {
+    if (!supabase || !canManageApprovals) {
+      setCommunityReportsMessage('관리자 또는 부관리자만 신고 내용을 처리할 수 있어.')
+      return
+    }
+
+    const targetLabel = report.targetType === 'post' ? '게시글' : '댓글'
+    if (typeof window !== 'undefined' && !window.confirm(`신고된 ${targetLabel}을 삭제할까요?`)) return
+
+    const targetKey = `${report.targetType}-${report.targetType === 'post' ? report.postId : report.commentId}`
+    setDeletingReportedTarget(targetKey)
+    setCommunityReportsMessage('')
+    try {
+      const { error } = report.targetType === 'post'
+        ? await supabase.from('community_posts').delete().eq('id', report.postId)
+        : await supabase.from('community_comments').delete().eq('id', report.commentId)
+
+      if (error) throw error
+
+      setCommunityReports((prev) =>
+        prev.filter((item) =>
+          report.targetType === 'post'
+            ? item.postId !== report.postId
+            : item.commentId !== report.commentId,
+        ),
+      )
+      setCommunityReportsMessage(`신고된 ${targetLabel}을 삭제했습니다.`)
+    } catch (error) {
+      const message = typeof error === 'object' && error !== null && 'message' in error ? String((error as { message?: unknown }).message ?? '알 수 없는 오류') : '알 수 없는 오류'
+      setCommunityReportsMessage(`${targetLabel} 삭제 실패: ${message}`)
+    } finally {
+      setDeletingReportedTarget(null)
     }
   }
 
@@ -3207,12 +3513,15 @@ function AppShell() {
               로그아웃
             </button>
             {canManageApprovals && (
-              <div className="grid gap-3 sm:grid-cols-2">
+              <div className="grid gap-3 sm:grid-cols-3">
                 <button onClick={() => navigate('/admin/approvals')} className="rounded-2xl bg-blue-700 px-5 py-3 text-sm font-semibold text-white transition hover:bg-blue-800">
                   회원가입 승인
                 </button>
                 <button onClick={() => navigate('/admin/members')} className="rounded-2xl border border-blue-200 bg-blue-50 px-5 py-3 text-sm font-semibold text-blue-700 transition hover:border-blue-300 hover:bg-blue-100">
                   회원 관리
+                </button>
+                <button onClick={() => navigate('/admin/community-reports')} className="rounded-2xl border border-red-200 bg-red-50 px-5 py-3 text-sm font-semibold text-red-700 transition hover:border-red-300 hover:bg-red-100">
+                  신고 관리
                 </button>
               </div>
             )}
@@ -3399,6 +3708,12 @@ function AppShell() {
                 className="rounded-2xl border border-slate-300 bg-white px-5 py-3 text-sm font-semibold text-slate-800 transition hover:border-blue-300 hover:text-blue-700"
               >
                 회원 관리
+              </button>
+              <button
+                onClick={() => navigate('/admin/community-reports')}
+                className="rounded-2xl border border-red-200 bg-red-50 px-5 py-3 text-sm font-semibold text-red-700 transition hover:border-red-300 hover:bg-red-100"
+              >
+                신고 관리
               </button>
               <button
                 onClick={fetchApprovalProfiles}
@@ -3610,6 +3925,12 @@ function AppShell() {
                 회원가입 승인
               </button>
               <button
+                onClick={() => navigate('/admin/community-reports')}
+                className="rounded-2xl border border-red-200 bg-red-50 px-5 py-3 text-sm font-semibold text-red-700 transition hover:border-red-300 hover:bg-red-100"
+              >
+                신고 관리
+              </button>
+              <button
                 onClick={fetchMemberProfiles}
                 disabled={memberLoading}
                 className="rounded-2xl bg-blue-700 px-5 py-3 text-sm font-semibold text-white transition hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-60"
@@ -3738,6 +4059,131 @@ function AppShell() {
                   </tbody>
                 </table>
               </div>
+            )}
+          </div>
+        </div>
+      </SectionShell>
+    )
+  }
+
+  function AdminCommunityReportsPage() {
+    if (!isLoggedIn) {
+      return <Navigate to="/login" replace />
+    }
+
+    if (!canManageApprovals) {
+      return (
+        <SectionShell eyebrow="ADMIN" title="게시물 및 댓글 신고" description="관리자 또는 부관리자 권한이 있는 계정만 접근할 수 있는 페이지야.">
+          <div className="rounded-[1.5rem] border border-slate-200 bg-slate-50 p-6 text-slate-600">신고 관리 권한이 확인되지 않았습니다.</div>
+        </SectionShell>
+      )
+    }
+
+    return (
+      <SectionShell eyebrow="ADMIN" title="게시물 및 댓글 신고" description="신고된 게시글과 댓글을 확인하고 필요한 경우 삭제할 수 있는 운영 화면이야." wide>
+        <div className="space-y-5">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="text-sm font-semibold text-slate-500">
+              접수된 신고 <span className="text-blue-700">{communityReports.length}</span>건
+            </div>
+            <div className="flex flex-wrap gap-3">
+              <button
+                type="button"
+                onClick={() => navigate('/admin/members')}
+                className="rounded-2xl border border-slate-300 bg-white px-5 py-3 text-sm font-semibold text-slate-800 transition hover:border-blue-300 hover:text-blue-700"
+              >
+                회원 관리
+              </button>
+              <button
+                type="button"
+                onClick={() => navigate('/admin/approvals')}
+                className="rounded-2xl border border-slate-300 bg-white px-5 py-3 text-sm font-semibold text-slate-800 transition hover:border-blue-300 hover:text-blue-700"
+              >
+                회원가입 승인
+              </button>
+              <button
+                type="button"
+                onClick={fetchCommunityReports}
+                disabled={communityReportsLoading}
+                className="rounded-2xl bg-blue-700 px-5 py-3 text-sm font-semibold text-white transition hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {communityReportsLoading ? '새로고침 중...' : '목록 새로고침'}
+              </button>
+            </div>
+          </div>
+
+          {communityReportsMessage && (
+            <div className={`rounded-2xl border px-4 py-3 text-sm font-semibold ${communityReportsMessage.includes('삭제했습니다') ? 'border-blue-100 bg-blue-50 text-blue-700' : 'border-red-100 bg-red-50 text-red-600'}`}>
+              {communityReportsMessage}
+            </div>
+          )}
+
+          <div className="space-y-4">
+            {communityReportsLoading && communityReports.length === 0 ? (
+              <div className="rounded-[1.5rem] border border-slate-200 bg-white p-6 text-sm font-semibold text-slate-500">신고 목록을 불러오는 중...</div>
+            ) : communityReports.length === 0 ? (
+              <div className="rounded-[1.5rem] border border-slate-200 bg-white p-6 text-sm font-semibold text-slate-500">현재 접수된 게시물 또는 댓글 신고가 없습니다.</div>
+            ) : (
+              communityReports.map((report) => {
+                const targetKey = `${report.targetType}-${report.targetType === 'post' ? report.postId : report.commentId}`
+                const targetLabel = report.targetType === 'post' ? '게시글' : '댓글'
+
+                return (
+                  <div key={report.id} className="rounded-[1.5rem] border border-slate-200 bg-white p-5 shadow-sm md:p-6">
+                    <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className={`rounded-full px-3 py-1 text-xs font-black ${report.targetType === 'post' ? 'bg-blue-50 text-blue-700 ring-1 ring-blue-100' : 'bg-amber-50 text-amber-700 ring-1 ring-amber-100'}`}>
+                            {targetLabel} 신고
+                          </span>
+                          <span className="text-xs font-semibold text-slate-500">{formatCommunityDateTime(report.createdAt)}</span>
+                        </div>
+                        <h3 className="mt-4 text-2xl font-black tracking-tight text-slate-950">{report.targetTitle}</h3>
+                        <div className="mt-3 grid gap-3 sm:grid-cols-3">
+                          <div className="rounded-2xl bg-slate-50 px-4 py-3">
+                            <div className="text-xs font-semibold text-slate-500">신고자</div>
+                            <div className="mt-1 text-sm font-black text-slate-900">
+                              {report.reporter} · {getRoleLabel(report.reporterRole, true)}
+                            </div>
+                          </div>
+                          <div className="rounded-2xl bg-slate-50 px-4 py-3">
+                            <div className="text-xs font-semibold text-slate-500">작성자</div>
+                            <div className="mt-1 text-sm font-black text-slate-900">{report.targetAuthor}</div>
+                          </div>
+                          <div className="rounded-2xl bg-slate-50 px-4 py-3">
+                            <div className="text-xs font-semibold text-slate-500">위치</div>
+                            <div className="mt-1 text-sm font-black text-slate-900">
+                              게시글 #{report.postId}
+                              {report.commentId ? ` · 댓글 #${report.commentId}` : ''}
+                            </div>
+                          </div>
+                        </div>
+                        <div className="mt-4 max-h-52 overflow-auto whitespace-pre-wrap rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 text-sm font-medium leading-7 text-slate-700">
+                          {report.targetContent || '신고 당시 저장된 내용이 없습니다.'}
+                        </div>
+                      </div>
+
+                      <div className="flex flex-wrap gap-2 lg:w-48 lg:flex-col">
+                        <button
+                          type="button"
+                          onClick={() => navigate(`/notice/community/${report.postId}`)}
+                          className="rounded-2xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-bold text-slate-700 transition hover:border-blue-300 hover:text-blue-700"
+                        >
+                          게시글 보기
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteReportedTarget(report)}
+                          disabled={deletingReportedTarget === targetKey}
+                          className="rounded-2xl bg-red-600 px-4 py-2.5 text-sm font-black text-white transition hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          {deletingReportedTarget === targetKey ? '삭제 중...' : `${targetLabel} 삭제`}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )
+              })
             )}
           </div>
         </div>
@@ -4329,6 +4775,7 @@ function AppShell() {
     const postId = match ? Number(match[1]) : null
     const post = (postId ? communityPosts.find((item) => item.id === postId) : null) ?? communityDetailPost
     const canUsePostActions = Boolean(postId && post)
+    const isOwnPost = Boolean(post?.authorId && post.authorId === currentUserId)
 
     return (
       <SectionShell eyebrow="COMMUNITY" title="자유게시판" description="게시글 내용을 확인하는 공간이야." wide>
@@ -4358,7 +4805,16 @@ function AppShell() {
             ) : post ? (
               <>
                 <div className="border-b border-slate-200 bg-slate-50 px-5 py-7 md:px-10 md:py-10">
-                  <h2 className="text-3xl font-black tracking-tight text-slate-950 md:text-5xl">{post.title}</h2>
+                  {editingCommunityPost ? (
+                    <input
+                      value={editingCommunityPostTitle}
+                      onChange={(event) => setEditingCommunityPostTitle(event.target.value)}
+                      className="w-full rounded-2xl border border-slate-200 bg-white px-5 py-4 text-2xl font-black tracking-tight text-slate-950 outline-none transition focus:border-blue-400 md:px-6 md:py-5 md:text-4xl"
+                      maxLength={80}
+                    />
+                  ) : (
+                    <h2 className="text-3xl font-black tracking-tight text-slate-950 md:text-5xl">{post.title}</h2>
+                  )}
                   <div className="mt-6 flex flex-wrap items-center gap-3 text-sm font-semibold text-slate-600 md:text-base">
                     <span className="rounded-xl border border-slate-200 bg-white px-4 py-2 font-black">
                       <span className={post.role === 'admin' ? 'text-red-500' : post.role === 'sub_admin' ? 'text-blue-700' : 'text-slate-700'}>{post.author}</span>
@@ -4372,35 +4828,113 @@ function AppShell() {
                         {getRoleLabel(post.role, true)}
                       </span>
                     )}
+                    {post.updatedAt && <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-500">수정됨</span>}
                   </div>
+                  {isOwnPost && (
+                    <div className="mt-6 flex flex-wrap gap-2">
+                      {editingCommunityPost ? (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditingCommunityPost(false)
+                              setEditingCommunityPostTitle('')
+                              setEditingCommunityPostContent('')
+                              setCommunityDetailMessage('')
+                            }}
+                            className="rounded-2xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-bold text-slate-700 transition hover:border-blue-300 hover:text-blue-700"
+                          >
+                            취소
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => postId && handleCommunityPostUpdate(postId)}
+                            disabled={communityPostActionSaving || !editingCommunityPostTitle.trim() || !editingCommunityPostContent.trim()}
+                            className="rounded-2xl bg-blue-700 px-4 py-2.5 text-sm font-black text-white transition hover:bg-blue-800 disabled:cursor-not-allowed disabled:bg-blue-300"
+                          >
+                            {communityPostActionSaving ? '저장 중...' : '저장'}
+                          </button>
+                        </>
+                      ) : (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => startCommunityPostEdit(post)}
+                            className="rounded-2xl border border-blue-200 bg-white px-4 py-2.5 text-sm font-black text-blue-700 transition hover:bg-blue-50"
+                          >
+                            수정
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => postId && handleCommunityPostDelete(postId)}
+                            disabled={communityPostActionSaving}
+                            className="rounded-2xl border border-red-200 bg-white px-4 py-2.5 text-sm font-black text-red-600 transition hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60"
+                          >
+                            삭제
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  )}
                 </div>
                 <div className="px-5 py-8 md:px-10 md:py-10">
-                  <div className="min-h-[12rem] whitespace-pre-wrap text-base font-medium leading-8 text-slate-800 md:text-lg">{post.content}</div>
+                  {editingCommunityPost ? (
+                    <textarea
+                      value={editingCommunityPostContent}
+                      onChange={(event) => setEditingCommunityPostContent(event.target.value)}
+                      className="min-h-[18rem] w-full resize-y rounded-2xl border border-slate-200 bg-slate-50 px-5 py-5 text-base font-medium leading-8 text-slate-800 outline-none transition focus:border-blue-400 focus:bg-white md:text-lg"
+                      maxLength={10000}
+                    />
+                  ) : (
+                    <div className="min-h-[12rem] whitespace-pre-wrap text-base font-medium leading-8 text-slate-800 md:text-lg">{post.content}</div>
+                  )}
+                  {communityDetailMessage && (
+                    <div className={`mt-5 rounded-2xl border px-4 py-3 text-sm font-semibold ${communityDetailMessage.includes('실패') ? 'border-red-100 bg-red-50 text-red-600' : 'border-blue-100 bg-blue-50 text-blue-700'}`}>
+                      {communityDetailMessage}
+                    </div>
+                  )}
                   <div className="mt-10 border-t border-slate-200 pt-8">
                     <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-                      <div className="flex flex-wrap items-center gap-3">
-                        <button
-                          type="button"
-                          onClick={() => postId && handleCommunityReaction(postId, 'like')}
-                          disabled={!canUsePostActions || communityReactionSaving !== null}
-                          className={`rounded-xl px-5 py-3 text-sm font-black transition disabled:cursor-not-allowed disabled:opacity-60 ${
-                            communityUserReaction === 'like' ? 'bg-blue-700 text-white shadow-lg shadow-blue-700/20' : 'bg-blue-50 text-slate-800 hover:bg-blue-100'
-                          }`}
-                        >
-                          좋아요 <span className={communityUserReaction === 'like' ? 'text-white' : 'text-blue-700'}>{communityReactionCounts.like}</span>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => postId && handleCommunityReaction(postId, 'dislike')}
-                          disabled={!canUsePostActions || communityReactionSaving !== null}
-                          className={`rounded-xl px-5 py-3 text-sm font-black transition disabled:cursor-not-allowed disabled:opacity-60 ${
-                            communityUserReaction === 'dislike' ? 'bg-rose-600 text-white shadow-lg shadow-rose-600/20' : 'bg-rose-50 text-slate-800 hover:bg-rose-100'
-                          }`}
-                        >
-                          싫어요 <span className={communityUserReaction === 'dislike' ? 'text-white' : 'text-rose-500'}>{communityReactionCounts.dislike}</span>
-                        </button>
+                      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                        <div className="flex flex-wrap items-center gap-3">
+                          <button
+                            type="button"
+                            onClick={() => postId && handleCommunityReaction(postId, 'like')}
+                            disabled={!canUsePostActions || communityReactionSaving !== null}
+                            className={`rounded-xl px-5 py-3 text-sm font-black transition disabled:cursor-not-allowed disabled:opacity-60 ${
+                              communityUserReaction === 'like' ? 'bg-blue-700 text-white shadow-lg shadow-blue-700/20' : 'bg-blue-50 text-slate-800 hover:bg-blue-100'
+                            }`}
+                          >
+                            좋아요 <span className={communityUserReaction === 'like' ? 'text-white' : 'text-blue-700'}>{communityReactionCounts.like}</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => postId && handleCommunityReaction(postId, 'dislike')}
+                            disabled={!canUsePostActions || communityReactionSaving !== null}
+                            className={`rounded-xl px-5 py-3 text-sm font-black transition disabled:cursor-not-allowed disabled:opacity-60 ${
+                              communityUserReaction === 'dislike' ? 'bg-rose-600 text-white shadow-lg shadow-rose-600/20' : 'bg-rose-50 text-slate-800 hover:bg-rose-100'
+                            }`}
+                          >
+                            싫어요 <span className={communityUserReaction === 'dislike' ? 'text-white' : 'text-rose-500'}>{communityReactionCounts.dislike}</span>
+                          </button>
+                        </div>
+                        {!isOwnPost && (
+                          <button
+                            type="button"
+                            onClick={() => handleCommunityPostReport(post)}
+                            disabled={!canUsePostActions || communityReportingTarget === `post-${post.id}`}
+                            className="rounded-xl border border-red-200 bg-white px-5 py-3 text-sm font-black text-red-600 transition hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60"
+                          >
+                            {communityReportingTarget === `post-${post.id}` ? '신고 중...' : '신고'}
+                          </button>
+                        )}
                       </div>
                     </div>
+                    {communityReportMessage && (
+                      <div className={`mt-4 rounded-2xl border px-4 py-3 text-sm font-semibold ${communityReportMessage.includes('접수') || communityReportMessage.includes('이미') ? 'border-blue-100 bg-blue-50 text-blue-700' : 'border-red-100 bg-red-50 text-red-600'}`}>
+                        {communityReportMessage}
+                      </div>
+                    )}
                   </div>
                 </div>
               </>
@@ -4473,6 +5007,16 @@ function AppShell() {
                                   삭제
                                 </button>
                               </>
+                            )}
+                            {!isOwnComment && !isEditing && (
+                              <button
+                                type="button"
+                                onClick={() => handleCommunityCommentReport(comment)}
+                                disabled={communityReportingTarget === `comment-${comment.id}`}
+                                className="font-black text-red-600 hover:text-red-700 disabled:cursor-not-allowed disabled:opacity-60"
+                              >
+                                {communityReportingTarget === `comment-${comment.id}` ? '신고 중...' : '신고'}
+                              </button>
                             )}
                           </div>
                         </div>
@@ -4711,6 +5255,7 @@ function AppShell() {
           <Route path="/mypage" element={requireLogin(() => MyPage())} />
           <Route path="/admin/approvals" element={requireLogin(() => AdminApprovalsPage())} />
           <Route path="/admin/members" element={requireLogin(() => MemberManagementPage())} />
+          <Route path="/admin/community-reports" element={requireLogin(() => AdminCommunityReportsPage())} />
           <Route path="/notice" element={NoticePage()} />
           <Route path="/notice/community" element={requireApproved(() => CommunityPage())} />
           <Route path="/notice/community/new" element={requireApproved(() => CommunityWritePage())} />
