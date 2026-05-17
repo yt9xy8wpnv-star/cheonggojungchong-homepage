@@ -4984,7 +4984,7 @@ function AppShell() {
     const visiblePosts = regularPosts.slice(pageStart, pageStart + communityPostsPerPage)
 
     return (
-      <SectionShell eyebrow="COMMUNITY" title="자유게시판" description="정시를 준비하며 떠오른 생각과 질문을 자유롭게 나누는 공간이야." wide>
+      <SectionShell eyebrow="COMMUNITY" title="자유게시판" description="정시를 준비하며 떠오른 생각을 공유하는 우리들의 공간." wide>
         <div className="space-y-5">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
             <div>
@@ -5471,7 +5471,7 @@ function AppShell() {
 
   function CommunityWritePage() {
     return (
-      <SectionShell eyebrow="COMMUNITY" title="새로운 이야기 작성" description="당신의 생각을 자유롭게 공유해보세요." wide>
+      <SectionShell eyebrow="COMMUNITY" title="새로운 게시글 작성" description="정시와 관련된 생각을 공유해보세요!" wide>
         <div className="space-y-6">
           <div className="flex justify-end">
             <button
@@ -5505,7 +5505,7 @@ function AppShell() {
                   value={communityContent}
                   onChange={(e) => setCommunityContent(e.target.value)}
                   className="min-h-[28rem] w-full resize-y rounded-2xl border border-slate-200 bg-slate-50 px-5 py-5 text-base font-medium leading-8 text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-blue-400 focus:bg-white md:min-h-[36rem] md:px-7 md:py-6 md:text-xl"
-                  placeholder="나누고 싶은 이야기를 자유롭게 작성해보세요..."
+                  placeholder="게시글을 작성해보세요."
                 />
               </div>
 
@@ -5513,7 +5513,7 @@ function AppShell() {
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div>
                     <div className="text-lg font-black tracking-tight text-slate-900">사진 첨부</div>
-                    <div className="mt-1 text-sm font-semibold text-slate-500">최대 5장, 장당 5MB 이하의 이미지를 첨부할 수 있어.</div>
+                    <div className="mt-1 text-sm font-semibold text-slate-500">최대 5장, 장당 5MB 이하의 이미지를 첨부할 수 있습니다.</div>
                   </div>
                   <button
                     type="button"
