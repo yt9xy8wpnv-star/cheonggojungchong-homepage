@@ -69,6 +69,26 @@ type GoalPlan = {
   grades: GoalGrades
 }
 
+type CommunityPost = {
+  id: number
+  title: string
+  content: string
+  author: string
+  role: UserRole
+  createdAt: string
+  views: number
+}
+
+type CommunityPostRow = {
+  id: number
+  title: string
+  content: string
+  author_username: string | null
+  author_role: UserRole | null
+  views: number | null
+  created_at: string | null
+}
+
 type GoalPlanRow = {
   university: string
   department: string
@@ -348,7 +368,7 @@ const policeStationButtons = [
   ['도움 요청하기', '자유게시판에서 막히는 지점을 공유하고 같이 해결해.', '/notice/community'],
 ] as const
 
-const communityMenu = [['커뮤니티', '/notice/community']] as const
+const communityMenu = [['자유게시판', '/notice/community']] as const
 
 const noticeMenu = [
   ['공지사항', '/notice'],
@@ -384,6 +404,42 @@ const initialGoalGrades: GoalGrades = {
   inquiry1: '',
   inquiry2: '',
 }
+
+const communityPostsPerPage = 20
+
+const initialCommunityPosts: CommunityPost[] = [
+  ['목표 대학 정할 때 다들 기준이 뭐야?', '나는 학과랑 지역을 같이 보고 있는데, 다들 목표 대학 잡을 때 어떤 기준을 제일 먼저 보는지 궁금해.', 'JEONGSI101', 'member', '2026-05-17T08:10:00.000Z', 31],
+  ['오늘 순공 시간 인증', '오늘은 국어 기출 2회분이랑 수학 N제 조금 밀었다. 다들 오늘 공부 흐름 어땠어?', 'STUDYRUN', 'member', '2026-05-17T07:25:00.000Z', 44],
+  ['5월 학평 이후 계획 공유해보자', '성적표 나오기 전까지 어떤 식으로 복습할지 서로 적어보면 좋을 것 같아.', 'CUTLINE', 'sub_admin', '2026-05-16T13:40:00.000Z', 76],
+  ['영어는 매일 조금씩 하는 게 답인가', '영어 감 유지하려고 하루 20분씩이라도 하려는데 효과 있을까?', 'ENGLOCK', 'member', '2026-05-16T10:15:00.000Z', 27],
+  ['수학 실수 줄이는 루틴 추천받음', '계산 실수가 너무 많아서 오답보다 실수 정리가 더 필요해 보이는데 좋은 방식 있으면 공유해줘.', 'MATHRUN', 'member', '2026-05-15T12:20:00.000Z', 53],
+  ['정시 파출소 버튼 잘 쓰는 법', '막히는 지점을 바로 기록해두면 나중에 마이페이지랑 같이 보기 좋아.', 'ADMIN', 'admin', '2026-05-15T09:30:00.000Z', 98],
+  ['탐구 두 과목 밸런스 어떻게 잡아?', '한 과목만 계속 잘 되고 다른 한 과목은 자꾸 미뤄져서 고민이야.', 'SOCIAL2', 'member', '2026-05-14T15:45:00.000Z', 36],
+  ['학교 끝나고 바로 공부하는 사람?', '집 가면 흐름이 끊겨서 학교 근처에서 하고 가는 게 나은지 고민 중.', 'AFTERCLASS', 'member', '2026-05-14T11:10:00.000Z', 22],
+  ['국어 독서 지문 시간 배분', '첫 지문에서 오래 걸리면 뒤가 무너져서 시간 배분 연습법이 궁금해.', 'READFAST', 'member', '2026-05-13T14:05:00.000Z', 41],
+  ['기상 시간 고정 성공한 사람 있나', '아침 루틴을 고정하고 싶은데 주말에 무너지는 게 제일 어렵다.', 'MORNING', 'member', '2026-05-13T07:50:00.000Z', 19],
+  ['스터디 타이머 랭킹 은근 자극됨', '혼자 공부할 때보다 켜놓고 하면 좀 더 버티게 되는 듯.', 'TIMERON', 'member', '2026-05-12T16:35:00.000Z', 62],
+  ['이번 주말 계획표 공유', '토요일은 수학, 일요일은 국어 몰아서 하려고 하는데 너무 한쪽으로 치우친 걸까.', 'PLANB', 'member', '2026-05-12T12:15:00.000Z', 29],
+  ['목표 등급 입력하고 나니까 현실감 생김', '마이페이지에 목표 등급 넣어두니까 뭘 올려야 하는지 딱 보이는 느낌.', 'TARGET9', 'member', '2026-05-11T10:40:00.000Z', 34],
+  ['선택과목 수정은 마이페이지에서 가능', '과목 잘못 선택한 사람은 마이페이지에서 다시 고치면 돼.', 'ADMIN', 'admin', '2026-05-10T09:00:00.000Z', 84],
+  ['한국사 너무 방치해도 되나', '다들 한국사 어느 정도 간격으로 보는지 궁금하다.', 'HISTORY', 'member', '2026-05-09T13:55:00.000Z', 25],
+  ['수능특강 활용법', '그냥 문제만 풀지 말고 틀린 선지 이유까지 정리하는 게 맞겠지?', 'EBSLOOP', 'member', '2026-05-09T08:35:00.000Z', 47],
+  ['오늘 공부 안 되는 사람 모여라', '그런 날도 일단 책상에 앉는 게 승리라고 믿는 중.', 'LOWDAY', 'member', '2026-05-08T17:25:00.000Z', 58],
+  ['목표 대학 로고 뜨는 거 좋다', '홈에서 목표 대학 보이니까 동기부여가 꽤 됨.', 'LOGOUP', 'member', '2026-05-08T11:05:00.000Z', 38],
+  ['탐구 개념 회독 속도', '하루에 한 단원씩 보면 너무 빠른가?', 'REPEAT', 'member', '2026-05-07T12:45:00.000Z', 21],
+  ['기출 몇 개년까지 돌리는 중?', '최근 5개년 먼저 하고 예전 걸로 넘어가는 게 나을까?', 'PASTQ', 'member', '2026-05-07T09:20:00.000Z', 66],
+  ['두 번째 페이지 테스트 글', '페이지네이션이 자연스럽게 넘어가는지 확인하기 위한 게시글이야.', 'PAGE2', 'member', '2026-05-06T15:30:00.000Z', 12],
+  ['수학 오답노트 형식 공유', '문제 유형, 틀린 이유, 다시 풀 날짜 정도만 적고 있어.', 'NOTE', 'member', '2026-05-06T10:10:00.000Z', 33],
+  ['컨디션 관리도 실력인 듯', '잠 줄이면 다음 날 바로 무너져서 요즘은 수면 시간을 먼저 고정하려고 해.', 'SLEEP', 'member', '2026-05-05T18:00:00.000Z', 40],
+].map(([title, content, author, role, createdAt, views], index, arr) => ({
+  id: arr.length - index,
+  title: String(title),
+  content: String(content),
+  author: String(author),
+  role: role as UserRole,
+  createdAt: String(createdAt),
+  views: Number(views),
+}))
 
 const universityLogoMap: Record<string, string> = {
   서울대학교: '/Seoul_univ.png',
@@ -430,6 +486,18 @@ function goalPlanFromRow(row: GoalPlanRow): GoalPlan {
       inquiry1: formatGoalGrade(row.inquiry1_grade),
       inquiry2: formatGoalGrade(row.inquiry2_grade),
     },
+  }
+}
+
+function communityPostFromRow(row: CommunityPostRow): CommunityPost {
+  return {
+    id: Number(row.id),
+    title: row.title,
+    content: row.content,
+    author: row.author_username || '회원',
+    role: normalizeUserRole(row.author_role),
+    createdAt: row.created_at ?? new Date().toISOString(),
+    views: Number(row.views ?? 0),
   }
 }
 
@@ -559,6 +627,13 @@ function AppShell() {
   const [goalDraftDepartment, setGoalDraftDepartment] = useState('')
   const [goalDraftGrades, setGoalDraftGrades] = useState<GoalGrades>(initialGoalGrades)
   const [goalMessage, setGoalMessage] = useState('')
+  const [communityPosts, setCommunityPosts] = useState<CommunityPost[]>(supabase ? [] : initialCommunityPosts)
+  const [communityPage, setCommunityPage] = useState(1)
+  const [communityLoading, setCommunityLoading] = useState(false)
+  const [communityTitle, setCommunityTitle] = useState('')
+  const [communityContent, setCommunityContent] = useState('')
+  const [communityMessage, setCommunityMessage] = useState('')
+  const [communitySaving, setCommunitySaving] = useState(false)
 
   function resetAuthState() {
     setCurrentUserId('')
@@ -614,6 +689,10 @@ function AppShell() {
     setGoalDraftDepartment('')
     setGoalDraftGrades(initialGoalGrades)
     setGoalMessage('')
+    setCommunityTitle('')
+    setCommunityContent('')
+    setCommunityMessage('')
+    setCommunitySaving(false)
   }
 
   async function loadProfile(userId: string, email: string, userMeta?: Record<string, unknown>, joinedAt?: string) {
@@ -1351,11 +1430,108 @@ function AppShell() {
     }
   }, [currentUserId, isLoggedIn])
 
+  useEffect(() => {
+    if (!location.pathname.startsWith('/notice/community')) return
+    if (!isLoggedIn || !isApproved || isRejected || currentSuspensionActive) return
+
+    void fetchCommunityPosts()
+  }, [currentSuspensionActive, isApproved, isLoggedIn, isRejected, location.pathname])
+
   function formatJoinedDate(value: string) {
     if (!value) return '-'
     const date = new Date(value)
     if (Number.isNaN(date.getTime())) return value
     return date.toLocaleDateString('ko-KR')
+  }
+
+  function formatCommunityDate(value: string) {
+    const date = new Date(value)
+    if (Number.isNaN(date.getTime())) return '-'
+    const month = String(date.getMonth() + 1).padStart(2, '0')
+    const day = String(date.getDate()).padStart(2, '0')
+    return `${month}. ${day}.`
+  }
+
+  async function fetchCommunityPosts() {
+    if (!supabase) {
+      setCommunityPosts(initialCommunityPosts)
+      return
+    }
+
+    if (!isLoggedIn || !isApproved || isRejected || currentSuspensionActive) return
+
+    setCommunityLoading(true)
+    setCommunityMessage('')
+    try {
+      const { data, error } = await supabase
+        .from('community_posts')
+        .select('id, title, content, author_username, author_role, views, created_at')
+        .order('created_at', { ascending: false })
+        .order('id', { ascending: false })
+
+      if (error) throw error
+
+      setCommunityPosts(((data ?? []) as CommunityPostRow[]).map(communityPostFromRow))
+      setCommunityPage(1)
+    } catch (error) {
+      const message = typeof error === 'object' && error !== null && 'message' in error ? String((error as { message?: unknown }).message ?? '알 수 없는 오류') : '알 수 없는 오류'
+      setCommunityMessage(`게시글을 불러오지 못했습니다: ${message}`)
+    } finally {
+      setCommunityLoading(false)
+    }
+  }
+
+  async function handleCommunityPostSubmit() {
+    const title = communityTitle.trim()
+    const content = communityContent.trim()
+    setCommunityMessage('')
+
+    if (!supabase || !currentUserId) {
+      setCommunityMessage('Supabase 게시글 테이블 연결 후 글을 등록할 수 있어.')
+      return
+    }
+
+    if (!title) {
+      setCommunityMessage('제목을 입력해줘.')
+      return
+    }
+
+    if (!content) {
+      setCommunityMessage('본문 내용을 입력해줘.')
+      return
+    }
+
+    setCommunitySaving(true)
+    try {
+      const { data, error } = await supabase
+        .from('community_posts')
+        .insert({
+          author_id: currentUserId,
+          title,
+          content,
+          author_username: currentUsername || currentName || currentUserEmail.split('@')[0] || '회원',
+          author_role: currentRole,
+        })
+        .select('id, title, content, author_username, author_role, views, created_at')
+        .single<CommunityPostRow>()
+
+      if (error) throw error
+
+      if (data) {
+        setCommunityPosts((prev) => [communityPostFromRow(data), ...prev])
+      } else {
+        await fetchCommunityPosts()
+      }
+      setCommunityTitle('')
+      setCommunityContent('')
+      setCommunityPage(1)
+      navigate('/notice/community')
+    } catch (error) {
+      const message = typeof error === 'object' && error !== null && 'message' in error ? String((error as { message?: unknown }).message ?? '알 수 없는 오류') : '알 수 없는 오류'
+      setCommunityMessage(`글 등록 실패: ${message}`)
+    } finally {
+      setCommunitySaving(false)
+    }
   }
 
   async function handleProfileSave() {
@@ -3674,9 +3850,178 @@ function AppShell() {
   }
 
   function CommunityPage() {
+    const totalPages = Math.max(1, Math.ceil(communityPosts.length / communityPostsPerPage))
+    const safePage = Math.min(communityPage, totalPages)
+    const pageStart = (safePage - 1) * communityPostsPerPage
+    const visiblePosts = communityPosts.slice(pageStart, pageStart + communityPostsPerPage)
+
     return (
-      <SectionShell eyebrow="COMMUNITY" title="커뮤니티" description="청고정총 커뮤니티 활동과 게시판 연결을 위한 페이지야.">
-        <div className="rounded-[1.5rem] border border-slate-200 bg-slate-50 p-6 text-slate-600">커뮤니티 콘텐츠를 여기에 연결할 수 있어.</div>
+      <SectionShell eyebrow="COMMUNITY" title="자유게시판" description="정시를 준비하며 떠오른 생각과 질문을 자유롭게 나누는 공간이야." wide>
+        <div className="space-y-5">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <div className="text-3xl font-black tracking-tight text-slate-950">전체 게시글</div>
+              <div className="mt-2 text-sm font-black tracking-[0.28em] text-slate-400">{communityPosts.length} POSTS FOUND</div>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                setCommunityMessage('')
+                navigate('/notice/community/new')
+              }}
+              className="rounded-2xl bg-blue-700 px-6 py-3.5 text-sm font-black text-white shadow-lg shadow-blue-700/20 transition hover:bg-blue-800"
+            >
+              새 글 작성하기
+            </button>
+          </div>
+
+          {communityMessage && (
+            <div className={`rounded-2xl border px-4 py-3 text-sm font-semibold ${communityMessage.includes('불러오지 못했습니다') ? 'border-red-100 bg-red-50 text-red-600' : 'border-blue-100 bg-blue-50 text-blue-700'}`}>
+              {communityMessage}
+            </div>
+          )}
+
+          <div className="overflow-hidden rounded-[1.25rem] border border-slate-200 bg-white shadow-sm">
+            {communityLoading && visiblePosts.length === 0 ? (
+              <div className="px-6 py-14 text-center text-sm font-semibold text-slate-500">게시글을 불러오는 중...</div>
+            ) : visiblePosts.length === 0 ? (
+              <div className="px-6 py-14 text-center text-sm font-semibold text-slate-500">아직 게시글이 없습니다.</div>
+            ) : (
+              <div className="divide-y divide-slate-100">
+                {visiblePosts.map((post) => (
+                  <button
+                    key={post.id}
+                    type="button"
+                    className="grid w-full grid-cols-[4.5rem_1fr_2rem] items-center gap-4 px-5 py-5 text-left transition hover:bg-slate-50 md:grid-cols-[5.5rem_1fr_2.5rem] md:px-7"
+                  >
+                    <div className="text-center">
+                      <div className="text-sm font-black text-slate-400">#{post.id}</div>
+                      <div className="mt-2 text-sm font-black text-blue-700">{formatCommunityDate(post.createdAt)}</div>
+                    </div>
+                    <div className="min-w-0">
+                      <div className="truncate text-xl font-black tracking-tight text-slate-900 md:text-2xl">{post.title}</div>
+                      <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm font-black">
+                        <span className={post.role === 'admin' ? 'text-red-500' : post.role === 'sub_admin' ? 'text-blue-700' : 'text-slate-700'}>{post.author}</span>
+                        {post.role !== 'member' && (
+                          <span className="rounded-md border border-blue-100 bg-blue-50 px-2 py-0.5 text-xs font-black tracking-[0.18em] text-blue-700">
+                            {getRoleLabel(post.role, true)}
+                          </span>
+                        )}
+                        <span className="text-slate-700">{post.views} VIEW</span>
+                      </div>
+                    </div>
+                    <div className="text-4xl font-light leading-none text-slate-400">›</div>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="flex flex-col gap-3 rounded-[1.25rem] border border-slate-200 bg-slate-50 px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="text-sm font-semibold text-slate-500">
+              페이지 {safePage} / {totalPages} · 한 페이지 {communityPostsPerPage}글
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => setCommunityPage((prev) => Math.max(1, prev - 1))}
+                disabled={safePage === 1}
+                className="rounded-2xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:border-blue-300 hover:text-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                이전
+              </button>
+              {Array.from({ length: totalPages }, (_, index) => index + 1).map((page) => (
+                <button
+                  key={page}
+                  type="button"
+                  onClick={() => setCommunityPage(page)}
+                  className={`h-10 w-10 rounded-2xl text-sm font-black transition ${page === safePage ? 'bg-blue-700 text-white shadow-lg shadow-blue-700/20' : 'border border-slate-300 bg-white text-slate-700 hover:border-blue-300 hover:text-blue-700'}`}
+                >
+                  {page}
+                </button>
+              ))}
+              <button
+                type="button"
+                onClick={() => setCommunityPage((prev) => Math.min(totalPages, prev + 1))}
+                disabled={safePage === totalPages}
+                className="rounded-2xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:border-blue-300 hover:text-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                다음
+              </button>
+            </div>
+          </div>
+        </div>
+      </SectionShell>
+    )
+  }
+
+  function CommunityWritePage() {
+    return (
+      <SectionShell eyebrow="COMMUNITY" title="새로운 이야기 작성" description="당신의 생각을 자유롭게 공유해보세요." wide>
+        <div className="space-y-6">
+          <div className="flex justify-end">
+            <button
+              type="button"
+              onClick={() => {
+                setCommunityMessage('')
+                navigate('/notice/community')
+              }}
+              className="rounded-2xl border border-slate-300 bg-slate-50 px-5 py-3 text-sm font-bold text-slate-800 transition hover:border-blue-300 hover:bg-white hover:text-blue-700"
+            >
+              목록으로 돌아가기
+            </button>
+          </div>
+
+          <div className="rounded-[1.5rem] border border-slate-200 bg-white p-5 shadow-sm md:p-8">
+            <div className="space-y-6">
+              <div>
+                <label className="mb-2 block text-sm font-black text-blue-700">제목</label>
+                <input
+                  value={communityTitle}
+                  onChange={(e) => setCommunityTitle(e.target.value)}
+                  className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-5 py-4 text-lg font-bold text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-blue-400 focus:bg-white md:px-7 md:py-5 md:text-2xl"
+                  placeholder="게시글의 제목을 입력해주세요"
+                  maxLength={80}
+                />
+              </div>
+
+              <div>
+                <label className="mb-2 block text-sm font-black text-blue-700">본문 내용</label>
+                <textarea
+                  value={communityContent}
+                  onChange={(e) => setCommunityContent(e.target.value)}
+                  className="min-h-[28rem] w-full resize-y rounded-2xl border border-slate-200 bg-slate-50 px-5 py-5 text-base font-medium leading-8 text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-blue-400 focus:bg-white md:min-h-[36rem] md:px-7 md:py-6 md:text-xl"
+                  placeholder="나누고 싶은 이야기를 자유롭게 작성해보세요..."
+                />
+              </div>
+
+              {communityMessage && <div className="rounded-2xl border border-red-100 bg-red-50 px-4 py-3 text-sm font-semibold text-red-600">{communityMessage}</div>}
+
+              <div className="flex flex-col gap-3 sm:flex-row sm:justify-end">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCommunityTitle('')
+                    setCommunityContent('')
+                    setCommunityMessage('')
+                    navigate('/notice/community')
+                  }}
+                  className="rounded-2xl border border-slate-300 bg-white px-6 py-3 text-sm font-bold text-slate-800 transition hover:border-red-300 hover:text-red-700"
+                >
+                  취소
+                </button>
+                <button
+                  type="button"
+                  onClick={handleCommunityPostSubmit}
+                  disabled={communitySaving}
+                  className="rounded-2xl bg-blue-700 px-6 py-3 text-sm font-black text-white shadow-lg shadow-blue-700/20 transition hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {communitySaving ? '등록 중...' : '글 등록하기'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
       </SectionShell>
     )
   }
@@ -3802,6 +4147,7 @@ function AppShell() {
           <Route path="/admin/members" element={requireLogin(() => MemberManagementPage())} />
           <Route path="/notice" element={NoticePage()} />
           <Route path="/notice/community" element={requireApproved(() => CommunityPage())} />
+          <Route path="/notice/community/new" element={requireApproved(() => CommunityWritePage())} />
           <Route path="/notice/press" element={PressPage()} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
