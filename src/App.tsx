@@ -162,6 +162,12 @@ type CommunityReportRow = {
   created_at: string | null
 }
 
+type CommunityUserReportRow = {
+  target_type: CommunityReportTargetType
+  post_id: number
+  comment_id: number | null
+}
+
 type GoalPlanRow = {
   university: string
   department: string
@@ -225,6 +231,38 @@ function formatDateInputValue(date = new Date()) {
   const month = String(date.getMonth() + 1).padStart(2, '0')
   const day = String(date.getDate()).padStart(2, '0')
   return `${year}-${month}-${day}`
+}
+
+function getUserDisplayName(name?: string | null, username?: string | null, email?: string | null) {
+  const trimmedName = typeof name === 'string' ? name.trim() : ''
+  if (trimmedName) return trimmedName
+
+  const trimmedUsername = typeof username === 'string' ? username.trim() : ''
+  if (trimmedUsername) return trimmedUsername.includes('@') ? trimmedUsername.split('@')[0] : trimmedUsername
+
+  const trimmedEmail = typeof email === 'string' ? email.trim() : ''
+  return trimmedEmail ? trimmedEmail.split('@')[0] : '회원'
+}
+
+function getLocalDayKey(date = new Date()) {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
+function isToday(value: string | null | undefined) {
+  if (!value) return false
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return false
+  return getLocalDayKey(date) === getLocalDayKey()
+}
+
+function getNextMidnightDelay() {
+  const now = new Date()
+  const next = new Date(now)
+  next.setHours(24, 0, 0, 0)
+  return Math.max(next.getTime() - now.getTime(), 1000)
 }
 
 function isSuspensionActive(profile: Pick<ProfileRow, 'is_suspended_permanently' | 'suspension_starts_at' | 'suspension_ends_at'>) {
@@ -314,6 +352,8 @@ function formatStudyDuration(totalSeconds: number) {
 }
 
 function getDisplayStudySeconds(row: Pick<StudyTimerRow, 'current_seconds' | 'subject_seconds' | 'is_running' | 'updated_at'>) {
+  if (!isToday(row.updated_at)) return 0
+
   const currentSeconds = Number(row.current_seconds ?? 0)
   const normalizedCurrentSeconds = Number.isFinite(currentSeconds) && currentSeconds > 0 ? Math.floor(currentSeconds) : 0
   const subjectSeconds = normalizeSubjectSeconds(row.subject_seconds)
@@ -325,11 +365,16 @@ function getDisplayStudySeconds(row: Pick<StudyTimerRow, 'current_seconds' | 'su
   const updatedAt = new Date(row.updated_at).getTime()
   if (Number.isNaN(updatedAt)) return baseSeconds
 
-  const elapsedSeconds = Math.max(Math.floor((Date.now() - updatedAt) / 1000), 0)
+  const nextMidnight = new Date(row.updated_at)
+  nextMidnight.setHours(24, 0, 0, 0)
+  const elapsedEnd = Math.min(Date.now(), nextMidnight.getTime())
+  const elapsedSeconds = Math.max(Math.floor((elapsedEnd - updatedAt) / 1000), 0)
   return baseSeconds + elapsedSeconds
 }
 
 function getDisplaySubjectSeconds(row: Pick<StudyTimerRow, 'subject_seconds' | 'is_running' | 'updated_at' | 'current_subject'>) {
+  if (!isToday(row.updated_at)) return createEmptySubjectSeconds()
+
   const subjectSeconds = normalizeSubjectSeconds(row.subject_seconds)
 
   if (!row.is_running || !row.updated_at || !row.current_subject || !studySubjectOptions.includes(row.current_subject as (typeof studySubjectOptions)[number])) {
@@ -339,7 +384,10 @@ function getDisplaySubjectSeconds(row: Pick<StudyTimerRow, 'subject_seconds' | '
   const updatedAt = new Date(row.updated_at).getTime()
   if (Number.isNaN(updatedAt)) return subjectSeconds
 
-  const elapsedSeconds = Math.max(Math.floor((Date.now() - updatedAt) / 1000), 0)
+  const nextMidnight = new Date(row.updated_at)
+  nextMidnight.setHours(24, 0, 0, 0)
+  const elapsedEnd = Math.min(Date.now(), nextMidnight.getTime())
+  const elapsedSeconds = Math.max(Math.floor((elapsedEnd - updatedAt) / 1000), 0)
   const subject = row.current_subject as (typeof studySubjectOptions)[number]
   return {
     ...subjectSeconds,
@@ -777,6 +825,7 @@ function AppShell() {
   const [communityReactionSaving, setCommunityReactionSaving] = useState<CommunityReactionKind | null>(null)
   const [communityReportMessage, setCommunityReportMessage] = useState('')
   const [communityReportingTarget, setCommunityReportingTarget] = useState<string | null>(null)
+  const [communityReportedTargetKeys, setCommunityReportedTargetKeys] = useState<string[]>([])
   const [communityReports, setCommunityReports] = useState<CommunityReport[]>([])
   const [communityReportsLoading, setCommunityReportsLoading] = useState(false)
   const [communityReportsMessage, setCommunityReportsMessage] = useState('')
@@ -863,6 +912,7 @@ function AppShell() {
     setCommunityReactionSaving(null)
     setCommunityReportMessage('')
     setCommunityReportingTarget(null)
+    setCommunityReportedTargetKeys([])
     setCommunityReports([])
     setCommunityReportsLoading(false)
     setCommunityReportsMessage('')
@@ -1404,6 +1454,23 @@ function AppShell() {
         const restoredRunning = Boolean(data.is_running)
         const restoredSeconds = Math.max(Math.floor(Number(data.current_seconds ?? 0)), 0)
         const restoredSubjectSeconds = normalizeSubjectSeconds(data.subject_seconds)
+
+        if (!isToday(data.updated_at)) {
+          const empty = createEmptySubjectSeconds()
+          setStudySeconds(0)
+          setStudyRunning(false)
+          setCurrentStudySubject(restoredSubject)
+          setSubjectSeconds(empty)
+          studySnapshotRef.current = {
+            currentSeconds: 0,
+            isRunning: false,
+            currentSubject: restoredSubject,
+            subjectTotals: empty,
+          }
+          await resetCurrentUserStudyTimerState(restoredSubject, empty)
+          return
+        }
+
         const updatedAt = data.updated_at ? new Date(data.updated_at).getTime() : Number.NaN
         const elapsedSeconds = restoredRunning && Number.isFinite(updatedAt) ? Math.max(Math.floor((Date.now() - updatedAt) / 1000), 0) : 0
         const nextSubjectSeconds = {
@@ -1441,6 +1508,35 @@ function AppShell() {
 
     return () => window.clearInterval(sync)
   }, [currentUserId, isLoggedIn])
+
+  useEffect(() => {
+    if (!isLoggedIn || !currentUserId) return
+
+    const timer = window.setTimeout(() => {
+      const empty = createEmptySubjectSeconds()
+      setStudyRunning(false)
+      setStudySeconds(0)
+      setSubjectSeconds(empty)
+      studySnapshotRef.current = {
+        currentSeconds: 0,
+        isRunning: false,
+        currentSubject: currentStudySubject,
+        subjectTotals: empty,
+      }
+
+      void resetCurrentUserStudyTimerState(currentStudySubject, empty)
+        .then(() => {
+          setStudySyncMessage('자정이 지나 오늘 공부 시간이 초기화되었습니다.')
+          void fetchStudyLeaderboard()
+        })
+        .catch((error) => {
+          const message = error instanceof Error ? error.message : '알 수 없는 오류가 발생했습니다.'
+          setStudySyncMessage(`자정 초기화를 동기화하지 못했습니다: ${message}`)
+        })
+    }, getNextMidnightDelay())
+
+    return () => window.clearTimeout(timer)
+  }, [currentStudySubject, currentUserId, isLoggedIn])
 
   useEffect(() => {
     if (!supabase || !isLoggedIn) return
@@ -1521,9 +1617,7 @@ function AppShell() {
     }
 
     const topStudyUser = displayStudyLeaderboard[0] ?? null
-    const topStudyName = topStudyUser
-      ? String(topStudyUser.username || topStudyUser.name || 'unknown').split('@')[0]
-      : '기록 없음'
+    const topStudyName = topStudyUser ? getUserDisplayName(topStudyUser.name, topStudyUser.username) : '기록 없음'
     const runningCount = displayStudyLeaderboard.filter((row) => row.is_running).length
     const totalSeconds = displayStudyLeaderboard.reduce((sum, row) => sum + Number(row.current_seconds ?? 0), 0)
 
@@ -1633,6 +1727,7 @@ function AppShell() {
       setCommunityReactionCounts({ like: 0, dislike: 0 })
       setCommunityUserReaction(null)
       setCommunityReportMessage('')
+      setCommunityReportedTargetKeys([])
       return
     }
     if (!isLoggedIn || !isApproved || isRejected || currentSuspensionActive) return
@@ -1641,6 +1736,7 @@ function AppShell() {
     void fetchCommunityPost(postId)
     void fetchCommunityComments(postId)
     void fetchCommunityReactions(postId)
+    void fetchCommunityUserReports(postId)
   }, [currentSuspensionActive, currentUserId, isApproved, isLoggedIn, isRejected, location.pathname])
 
   function formatJoinedDate(value: string) {
@@ -1694,12 +1790,12 @@ function AppShell() {
         .slice(0, availableSlots)
 
       if (validFiles.length === 0) {
-        setCommunityMessage('사진은 최대 5장, 장당 5MB 이하의 이미지 파일만 첨부할 수 있어.')
+        setCommunityMessage('사진은 최대 5장, 장당 5MB 이하의 이미지 파일만 첨부할 수 있습니다.')
         return prev
       }
 
       if (validFiles.length < fileList.length) {
-        setCommunityMessage('사진은 최대 5장, 장당 5MB 이하만 첨부했어.')
+        setCommunityMessage('사진은 최대 5장, 장당 5MB 이하만 첨부했습니다.')
       }
 
       return [
@@ -1825,17 +1921,17 @@ function AppShell() {
     setCommunityMessage('')
 
     if (!supabase || !currentUserId) {
-      setCommunityMessage('Supabase 게시글 테이블 연결 후 글을 등록할 수 있어.')
+      setCommunityMessage('Supabase 게시글 테이블 연결 후 글을 등록할 수 있습니다.')
       return
     }
 
     if (!title) {
-      setCommunityMessage('제목을 입력해줘.')
+      setCommunityMessage('제목을 입력해주세요.')
       return
     }
 
     if (!content) {
-      setCommunityMessage('본문 내용을 입력해줘.')
+      setCommunityMessage('본문 내용을 입력해주세요.')
       return
     }
 
@@ -1893,17 +1989,17 @@ function AppShell() {
     setCommunityDetailMessage('')
 
     if (!supabase || !currentUserId) {
-      setCommunityDetailMessage('로그인 후 이용할 수 있어.')
+      setCommunityDetailMessage('로그인 후 이용할 수 있습니다.')
       return
     }
 
     if (!title) {
-      setCommunityDetailMessage('제목을 입력해줘.')
+      setCommunityDetailMessage('제목을 입력해주세요.')
       return
     }
 
     if (!content) {
-      setCommunityDetailMessage('본문 내용을 입력해줘.')
+      setCommunityDetailMessage('본문 내용을 입력해주세요.')
       return
     }
 
@@ -1941,7 +2037,7 @@ function AppShell() {
 
   async function handleCommunityPostDelete(postId: number) {
     if (!supabase || !currentUserId) {
-      setCommunityDetailMessage('로그인 후 이용할 수 있어.')
+      setCommunityDetailMessage('로그인 후 이용할 수 있습니다.')
       return
     }
 
@@ -1972,7 +2068,7 @@ function AppShell() {
 
   async function handleCommunityNoticeToggle(post: CommunityPost) {
     if (!supabase || !currentUserId || !canManageApprovals) {
-      setCommunityDetailMessage('부관리자 이상만 공지사항을 관리할 수 있어.')
+      setCommunityDetailMessage('부관리자 이상만 공지사항을 관리할 수 있습니다.')
       return
     }
 
@@ -2064,7 +2160,7 @@ function AppShell() {
 
   async function handleCommunityReaction(postId: number, reaction: CommunityReactionKind) {
     if (!supabase || !currentUserId) {
-      setCommunityCommentMessage('로그인 후 이용할 수 있어.')
+      setCommunityCommentMessage('로그인 후 이용할 수 있습니다.')
       return
     }
 
@@ -2108,12 +2204,12 @@ function AppShell() {
     setCommunityCommentMessage('')
 
     if (!supabase || !currentUserId) {
-      setCommunityCommentMessage('로그인 후 댓글을 달 수 있어.')
+      setCommunityCommentMessage('로그인 후 댓글을 달 수 있습니다.')
       return
     }
 
     if (!content) {
-      setCommunityCommentMessage('댓글 내용을 입력해줘.')
+      setCommunityCommentMessage('댓글 내용을 입력해주세요.')
       return
     }
 
@@ -2158,12 +2254,12 @@ function AppShell() {
     setCommunityCommentMessage('')
 
     if (!supabase || !currentUserId) {
-      setCommunityCommentMessage('로그인 후 이용할 수 있어.')
+      setCommunityCommentMessage('로그인 후 이용할 수 있습니다.')
       return
     }
 
     if (!content) {
-      setCommunityCommentMessage('댓글 내용을 입력해줘.')
+      setCommunityCommentMessage('댓글 내용을 입력해주세요.')
       return
     }
 
@@ -2198,7 +2294,7 @@ function AppShell() {
 
   async function handleCommunityCommentDelete(commentId: number) {
     if (!supabase || !currentUserId) {
-      setCommunityCommentMessage('로그인 후 이용할 수 있어.')
+      setCommunityCommentMessage('로그인 후 이용할 수 있습니다.')
       return
     }
 
@@ -2230,13 +2326,57 @@ function AppShell() {
     return currentUsername || currentName || currentUserEmail.split('@')[0] || '회원'
   }
 
-  async function handleCommunityPostReport(post: CommunityPost) {
+  function getCommunityReportKey(targetType: CommunityReportTargetType, id: number) {
+    return `${targetType}-${id}`
+  }
+
+  function markCommunityTargetReported(targetKey: string) {
+    setCommunityReportedTargetKeys((prev) => (prev.includes(targetKey) ? prev : [...prev, targetKey]))
+  }
+
+  function isCommunityTargetReported(targetKey: string) {
+    return communityReportedTargetKeys.includes(targetKey)
+  }
+
+  async function fetchCommunityUserReports(postId: number) {
     if (!supabase || !currentUserId) {
-      setCommunityReportMessage('로그인 후 신고할 수 있어.')
+      setCommunityReportedTargetKeys([])
       return
     }
 
-    const targetKey = `post-${post.id}`
+    try {
+      const { data, error } = await supabase
+        .from('community_reports')
+        .select('target_type, post_id, comment_id')
+        .eq('reporter_id', currentUserId)
+        .eq('post_id', postId)
+
+      if (error) throw error
+
+      const rows = (data ?? []) as CommunityUserReportRow[]
+      setCommunityReportedTargetKeys(
+        rows.map((row) => getCommunityReportKey(row.target_type, row.target_type === 'post' ? Number(row.post_id) : Number(row.comment_id))),
+      )
+    } catch (error) {
+      console.error('community user reports load error:', error)
+      setCommunityReportedTargetKeys([])
+    }
+  }
+
+  async function handleCommunityPostReport(post: CommunityPost) {
+    if (!supabase || !currentUserId) {
+      setCommunityReportMessage('로그인 후 신고할 수 있습니다.')
+      return
+    }
+
+    const targetKey = getCommunityReportKey('post', post.id)
+    if (isCommunityTargetReported(targetKey)) {
+      setCommunityReportMessage('이미 신고한 게시글입니다.')
+      return
+    }
+
+    if (typeof window !== 'undefined' && !window.confirm('허위 신고는 처벌 대상입니다. 신고를 접수할까요?')) return
+
     setCommunityReportingTarget(targetKey)
     setCommunityReportMessage('')
     try {
@@ -2256,10 +2396,16 @@ function AppShell() {
 
       if (error) throw error
 
+      markCommunityTargetReported(targetKey)
       setCommunityReportMessage('게시글 신고가 접수되었습니다.')
     } catch (error) {
       const message = typeof error === 'object' && error !== null && 'message' in error ? String((error as { message?: unknown }).message ?? '알 수 없는 오류') : '알 수 없는 오류'
-      setCommunityReportMessage(message.includes('duplicate key') ? '이미 신고한 게시글입니다.' : `게시글 신고 실패: ${message}`)
+      if (message.includes('duplicate key')) {
+        markCommunityTargetReported(targetKey)
+        setCommunityReportMessage('이미 신고한 게시글입니다.')
+      } else {
+        setCommunityReportMessage(`게시글 신고 실패: ${message}`)
+      }
     } finally {
       setCommunityReportingTarget(null)
     }
@@ -2267,11 +2413,18 @@ function AppShell() {
 
   async function handleCommunityCommentReport(comment: CommunityComment) {
     if (!supabase || !currentUserId) {
-      setCommunityCommentMessage('로그인 후 신고할 수 있어.')
+      setCommunityCommentMessage('로그인 후 신고할 수 있습니다.')
       return
     }
 
-    const targetKey = `comment-${comment.id}`
+    const targetKey = getCommunityReportKey('comment', comment.id)
+    if (isCommunityTargetReported(targetKey)) {
+      setCommunityCommentMessage('이미 신고한 댓글입니다.')
+      return
+    }
+
+    if (typeof window !== 'undefined' && !window.confirm('허위 신고는 처벌 대상입니다. 신고를 접수할까요?')) return
+
     setCommunityReportingTarget(targetKey)
     setCommunityCommentMessage('')
     try {
@@ -2291,10 +2444,16 @@ function AppShell() {
 
       if (error) throw error
 
+      markCommunityTargetReported(targetKey)
       setCommunityCommentMessage('댓글 신고가 접수되었습니다.')
     } catch (error) {
       const message = typeof error === 'object' && error !== null && 'message' in error ? String((error as { message?: unknown }).message ?? '알 수 없는 오류') : '알 수 없는 오류'
-      setCommunityCommentMessage(message.includes('duplicate key') ? '이미 신고한 댓글입니다.' : `댓글 신고 실패: ${message}`)
+      if (message.includes('duplicate key')) {
+        markCommunityTargetReported(targetKey)
+        setCommunityCommentMessage('이미 신고한 댓글입니다.')
+      } else {
+        setCommunityCommentMessage(`댓글 신고 실패: ${message}`)
+      }
     } finally {
       setCommunityReportingTarget(null)
     }
@@ -2325,7 +2484,7 @@ function AppShell() {
 
   async function handleDeleteReportedTarget(report: CommunityReport) {
     if (!supabase || !canManageApprovals) {
-      setCommunityReportsMessage('관리자 또는 부관리자만 신고 내용을 처리할 수 있어.')
+      setCommunityReportsMessage('관리자 또는 부관리자만 신고 내용을 처리할 수 있습니다.')
       return
     }
 
@@ -2419,7 +2578,7 @@ function AppShell() {
       setCurrentSubjectSelections(profileEditSubjects)
       setProfileEditPassword('')
       setProfileEditPasswordConfirm('')
-      setProfileEditMessage('프로필 정보를 수정했어.')
+      setProfileEditMessage('프로필 정보를 수정했습니다.')
     } catch (error) {
       const message = typeof error === 'object' && error !== null && 'message' in error ? String((error as { message?: unknown }).message ?? '알 수 없는 오류') : '알 수 없는 오류'
       setProfileEditMessage(`프로필 수정 실패: ${message}`)
@@ -2855,7 +3014,7 @@ function AppShell() {
               <div className="min-w-0 flex-1">
                 <div className="text-sm font-semibold tracking-[0.18em] text-blue-700">TARGET UNIVERSITY</div>
                 <div className="mt-2 text-2xl font-black tracking-tight text-slate-950 md:text-3xl">
-                  {(currentUsername || currentName || currentUserEmail.split('@')[0] || '회원')}님, {goalPlan.university}의 {goalPlan.department} 합격을 응원합니다!
+                  {getUserDisplayName(currentName, currentUsername, currentUserEmail)}님, {goalPlan.university}의 {goalPlan.department} 합격을 응원합니다!
                 </div>
               </div>
             </div>
@@ -4665,7 +4824,7 @@ function AppShell() {
                   <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-6 text-center text-sm text-slate-500">아직 표시할 타이머가 없어.</div>
 	                ) : (
 	                  displayStudyLeaderboard.map((row, index) => {
-	                    const displayId = (row.username || '').trim() ? String(row.username).trim() : 'unknown'
+	                    const displayName = getUserDisplayName(row.name, row.username)
 	                    const rank = index + 1
 	                    const isTop = index === 0
 	                    const previewOpen = leaderboardPreviewUserId === row.user_id
@@ -4690,7 +4849,7 @@ function AppShell() {
 	                          <div className="flex items-start justify-between gap-4">
 	                            <div>
 	                              <div className={`inline-flex rounded-full px-2.5 py-1 text-xs font-black ${isTop ? 'bg-amber-400 text-amber-950' : 'bg-slate-100 text-slate-600'}`}>#{rank}</div>
-	                              <div className={`mt-3 text-lg font-black tracking-tight ${isTop ? 'text-amber-950' : 'text-slate-900'}`}>{displayId.includes('@') ? displayId.split('@')[0] : displayId}</div>
+	                              <div className={`mt-3 text-lg font-black tracking-tight ${isTop ? 'text-amber-950' : 'text-slate-900'}`}>{displayName}</div>
 	                              <div className="mt-1 text-sm text-slate-500">{row.current_subject || '과목 미설정'} · {row.is_running ? '공부 중' : '대기 중'}</div>
 	                            </div>
 	                            <div className={`text-right text-2xl font-black tracking-tight ${isTop ? 'text-amber-700' : 'text-blue-700'}`}>{formatStudyDuration(Number(row.current_seconds ?? 0))}</div>
@@ -4702,7 +4861,7 @@ function AppShell() {
 	                            <div className="flex items-start justify-between gap-3">
 	                              <div>
 	                                <div className="text-xs font-semibold tracking-[0.16em] text-blue-700">STUDY DETAIL</div>
-	                                <div className="mt-1 text-lg font-black tracking-tight text-slate-900">{displayId.includes('@') ? displayId.split('@')[0] : displayId}</div>
+	                                <div className="mt-1 text-lg font-black tracking-tight text-slate-900">{displayName}</div>
 	                              </div>
 	                              <div className="text-right text-sm font-black text-blue-700">{formatStudyDuration(Number(row.current_seconds ?? 0))}</div>
 	                            </div>
@@ -4991,6 +5150,8 @@ function AppShell() {
     const post = (postId ? communityPosts.find((item) => item.id === postId) : null) ?? communityDetailPost
     const canUsePostActions = Boolean(postId && post)
     const isOwnPost = Boolean(post?.authorId && post.authorId === currentUserId)
+    const postReportKey = post ? getCommunityReportKey('post', post.id) : ''
+    const postAlreadyReported = Boolean(postReportKey && isCommunityTargetReported(postReportKey))
 
     return (
       <SectionShell eyebrow="COMMUNITY" title="자유게시판" description="게시글 내용을 확인하는 공간이야." wide>
@@ -5157,10 +5318,14 @@ function AppShell() {
                           <button
                             type="button"
                             onClick={() => handleCommunityPostReport(post)}
-                            disabled={!canUsePostActions || communityReportingTarget === `post-${post.id}`}
-                            className="rounded-xl border border-red-200 bg-white px-5 py-3 text-sm font-black text-red-600 transition hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60"
+                            disabled={!canUsePostActions || postAlreadyReported || communityReportingTarget === postReportKey}
+                            className={`rounded-xl border px-5 py-3 text-sm font-black transition disabled:cursor-not-allowed ${
+                              postAlreadyReported
+                                ? 'border-slate-200 bg-slate-100 text-slate-500'
+                                : 'border-red-200 bg-white text-red-600 hover:bg-red-50 disabled:opacity-60'
+                            }`}
                           >
-                            {communityReportingTarget === `post-${post.id}` ? '신고 중...' : '신고'}
+                            {postAlreadyReported ? '신고 완료' : communityReportingTarget === postReportKey ? '신고 중...' : '신고'}
                           </button>
                         )}
                       </div>
@@ -5218,6 +5383,8 @@ function AppShell() {
                   communityComments.map((comment) => {
                     const isOwnComment = comment.authorId === currentUserId
                     const isEditing = editingCommunityCommentId === comment.id
+                    const commentReportKey = getCommunityReportKey('comment', comment.id)
+                    const commentAlreadyReported = isCommunityTargetReported(commentReportKey)
 
                     return (
                       <div key={comment.id} className="rounded-[1.25rem] border border-slate-200 bg-white p-5 shadow-sm md:p-7">
@@ -5247,10 +5414,10 @@ function AppShell() {
                               <button
                                 type="button"
                                 onClick={() => handleCommunityCommentReport(comment)}
-                                disabled={communityReportingTarget === `comment-${comment.id}`}
-                                className="font-black text-red-600 hover:text-red-700 disabled:cursor-not-allowed disabled:opacity-60"
+                                disabled={commentAlreadyReported || communityReportingTarget === commentReportKey}
+                                className={`font-black disabled:cursor-not-allowed ${commentAlreadyReported ? 'text-slate-400' : 'text-red-600 hover:text-red-700 disabled:opacity-60'}`}
                               >
-                                {communityReportingTarget === `comment-${comment.id}` ? '신고 중...' : '신고'}
+                                {commentAlreadyReported ? '신고 완료' : communityReportingTarget === commentReportKey ? '신고 중...' : '신고'}
                               </button>
                             )}
                           </div>
@@ -5401,8 +5568,8 @@ function AppShell() {
               {canManageApprovals && (
                 <label className="flex items-center justify-between gap-4 rounded-2xl border border-blue-100 bg-blue-50 px-5 py-4 text-sm font-bold text-blue-900">
                   <span>
-                    <span className="block text-base font-black">공지사항으로 등록</span>
-                    <span className="mt-1 block text-sm font-semibold text-blue-700">부관리자 이상은 작성과 동시에 자유게시판 상단 공지로 올릴 수 있어.</span>
+                    <span className="block text-base font-black">공지사항으로 등록하시겠습니까?</span>
+                    <span className="mt-1 block text-sm font-semibold text-blue-700">부관리자 이상은 공지사항으로 등록이 가능합니다.</span>
                   </span>
                   <input
                     type="checkbox"
