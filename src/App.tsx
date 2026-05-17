@@ -78,6 +78,9 @@ type CommunityPost = {
   role: UserRole
   createdAt: string
   updatedAt: string | null
+  imageUrls: string[]
+  isNotice: boolean
+  noticeCreatedAt: string | null
   views: number
 }
 
@@ -91,10 +94,18 @@ type CommunityPostRow = {
   views: number | null
   created_at: string | null
   updated_at: string | null
+  image_urls: string[] | null
+  is_notice: boolean | null
+  notice_created_at: string | null
 }
 
 type CommunityReactionKind = 'like' | 'dislike'
 type CommunityReportTargetType = 'post' | 'comment'
+
+type CommunityImageDraft = {
+  file: File
+  previewUrl: string
+}
 
 type CommunityComment = {
   id: number
@@ -502,6 +513,9 @@ const initialCommunityPosts: CommunityPost[] = [
   role: role as UserRole,
   createdAt: String(createdAt),
   updatedAt: null,
+  imageUrls: [],
+  isNotice: String(title).includes('정시 파출소') || String(title).includes('선택과목 수정'),
+  noticeCreatedAt: String(title).includes('정시 파출소') || String(title).includes('선택과목 수정') ? String(createdAt) : null,
   views: Number(views),
 }))
 
@@ -563,8 +577,20 @@ function communityPostFromRow(row: CommunityPostRow): CommunityPost {
     role: normalizeUserRole(row.author_role),
     createdAt: row.created_at ?? new Date().toISOString(),
     updatedAt: row.updated_at ?? null,
+    imageUrls: Array.isArray(row.image_urls) ? row.image_urls.filter((url): url is string => typeof url === 'string' && url.length > 0) : [],
+    isNotice: Boolean(row.is_notice),
+    noticeCreatedAt: row.notice_created_at ?? null,
     views: Number(row.views ?? 0),
   }
+}
+
+function sortCommunityPosts(posts: CommunityPost[]) {
+  return [...posts].sort((a, b) => {
+    if (a.isNotice !== b.isNotice) return a.isNotice ? -1 : 1
+    const aTime = new Date(a.isNotice ? a.noticeCreatedAt ?? a.createdAt : a.createdAt).getTime()
+    const bTime = new Date(b.isNotice ? b.noticeCreatedAt ?? b.createdAt : b.createdAt).getTime()
+    return (Number.isNaN(bTime) ? 0 : bTime) - (Number.isNaN(aTime) ? 0 : aTime)
+  })
 }
 
 function communityCommentFromRow(row: CommunityCommentRow): CommunityComment {
@@ -729,6 +755,9 @@ function AppShell() {
   const [communityContent, setCommunityContent] = useState('')
   const [communityMessage, setCommunityMessage] = useState('')
   const [communitySaving, setCommunitySaving] = useState(false)
+  const [communityImageDrafts, setCommunityImageDrafts] = useState<CommunityImageDraft[]>([])
+  const [communityNoticeDraft, setCommunityNoticeDraft] = useState(false)
+  const [communityNoticesExpanded, setCommunityNoticesExpanded] = useState(false)
   const [communityDetailPost, setCommunityDetailPost] = useState<CommunityPost | null>(null)
   const [communityDetailLoading, setCommunityDetailLoading] = useState(false)
   const [communityDetailMessage, setCommunityDetailMessage] = useState('')
@@ -752,6 +781,7 @@ function AppShell() {
   const [communityReportsLoading, setCommunityReportsLoading] = useState(false)
   const [communityReportsMessage, setCommunityReportsMessage] = useState('')
   const [deletingReportedTarget, setDeletingReportedTarget] = useState<string | null>(null)
+  const communityImageInputRef = useRef<HTMLInputElement | null>(null)
 
   function resetAuthState() {
     setCurrentUserId('')
@@ -811,6 +841,9 @@ function AppShell() {
     setCommunityContent('')
     setCommunityMessage('')
     setCommunitySaving(false)
+    clearCommunityImageDrafts()
+    setCommunityNoticeDraft(false)
+    setCommunityNoticesExpanded(false)
     setCommunityDetailPost(null)
     setCommunityDetailMessage('')
     setCommunityDetailLoading(false)
@@ -1638,6 +1671,82 @@ function AppShell() {
     })
   }
 
+  function clearCommunityImageDrafts() {
+    setCommunityImageDrafts((prev) => {
+      prev.forEach((draft) => URL.revokeObjectURL(draft.previewUrl))
+      return []
+    })
+    if (communityImageInputRef.current) {
+      communityImageInputRef.current.value = ''
+    }
+  }
+
+  function addCommunityImageFiles(files: FileList | File[]) {
+    const fileList = Array.from(files)
+    if (fileList.length === 0) return
+
+    setCommunityMessage('')
+    setCommunityImageDrafts((prev) => {
+      const availableSlots = Math.max(0, 5 - prev.length)
+      const validFiles = fileList
+        .filter((file) => file.type.startsWith('image/'))
+        .filter((file) => file.size <= 5 * 1024 * 1024)
+        .slice(0, availableSlots)
+
+      if (validFiles.length === 0) {
+        setCommunityMessage('사진은 최대 5장, 장당 5MB 이하의 이미지 파일만 첨부할 수 있어.')
+        return prev
+      }
+
+      if (validFiles.length < fileList.length) {
+        setCommunityMessage('사진은 최대 5장, 장당 5MB 이하만 첨부했어.')
+      }
+
+      return [
+        ...prev,
+        ...validFiles.map((file) => ({
+          file,
+          previewUrl: URL.createObjectURL(file),
+        })),
+      ]
+    })
+  }
+
+  function removeCommunityImageDraft(index: number) {
+    setCommunityImageDrafts((prev) => {
+      const target = prev[index]
+      if (target) URL.revokeObjectURL(target.previewUrl)
+      return prev.filter((_, itemIndex) => itemIndex !== index)
+    })
+    if (communityImageInputRef.current) {
+      communityImageInputRef.current.value = ''
+    }
+  }
+
+  async function uploadCommunityImageDrafts() {
+    if (!supabase || !currentUserId || communityImageDrafts.length === 0) return []
+
+    const uploadedUrls: string[] = []
+    for (const [index, draft] of communityImageDrafts.entries()) {
+      const extension = draft.file.name.split('.').pop()?.toLowerCase().replace(/[^a-z0-9]/g, '') || 'jpg'
+      const filePath = `${currentUserId}/${Date.now()}-${index}-${Math.random().toString(36).slice(2)}.${extension}`
+      const { error } = await supabase.storage
+        .from('community-post-images')
+        .upload(filePath, draft.file, {
+          cacheControl: '3600',
+          contentType: draft.file.type,
+          upsert: false,
+        })
+
+      if (error) throw error
+
+      const { data } = supabase.storage.from('community-post-images').getPublicUrl(filePath)
+      if (data.publicUrl) uploadedUrls.push(data.publicUrl)
+    }
+
+    return uploadedUrls
+  }
+
   async function fetchCommunityPosts() {
     if (!supabase) {
       setCommunityPosts(initialCommunityPosts)
@@ -1651,13 +1760,13 @@ function AppShell() {
     try {
       const { data, error } = await supabase
         .from('community_posts')
-        .select('id, author_id, title, content, author_username, author_role, views, created_at, updated_at')
+        .select('id, author_id, title, content, author_username, author_role, views, created_at, updated_at, image_urls, is_notice, notice_created_at')
         .order('created_at', { ascending: false })
         .order('id', { ascending: false })
 
       if (error) throw error
 
-      setCommunityPosts(((data ?? []) as CommunityPostRow[]).map(communityPostFromRow))
+      setCommunityPosts(sortCommunityPosts(((data ?? []) as CommunityPostRow[]).map(communityPostFromRow)))
       setCommunityPage(1)
     } catch (error) {
       const message = typeof error === 'object' && error !== null && 'message' in error ? String((error as { message?: unknown }).message ?? '알 수 없는 오류') : '알 수 없는 오류'
@@ -1686,7 +1795,7 @@ function AppShell() {
     try {
       const { data, error } = await supabase
         .from('community_posts')
-        .select('id, author_id, title, content, author_username, author_role, views, created_at, updated_at')
+        .select('id, author_id, title, content, author_username, author_role, views, created_at, updated_at, image_urls, is_notice, notice_created_at')
         .eq('id', postId)
         .maybeSingle<CommunityPostRow>()
 
@@ -1700,7 +1809,7 @@ function AppShell() {
 
       const post = communityPostFromRow(data)
       setCommunityDetailPost(post)
-      setCommunityPosts((prev) => (prev.some((item) => item.id === post.id) ? prev : [post, ...prev]))
+      setCommunityPosts((prev) => sortCommunityPosts(prev.some((item) => item.id === post.id) ? prev.map((item) => (item.id === post.id ? post : item)) : [post, ...prev]))
     } catch (error) {
       const message = typeof error === 'object' && error !== null && 'message' in error ? String((error as { message?: unknown }).message ?? '알 수 없는 오류') : '알 수 없는 오류'
       setCommunityDetailPost(null)
@@ -1732,6 +1841,8 @@ function AppShell() {
 
     setCommunitySaving(true)
     try {
+      const imageUrls = await uploadCommunityImageDrafts()
+      const isNotice = canManageApprovals && communityNoticeDraft
       const { data, error } = await supabase
         .from('community_posts')
         .insert({
@@ -1740,19 +1851,24 @@ function AppShell() {
           content,
           author_username: currentUsername || currentName || currentUserEmail.split('@')[0] || '회원',
           author_role: currentRole,
+          image_urls: imageUrls,
+          is_notice: isNotice,
+          notice_created_at: isNotice ? new Date().toISOString() : null,
         })
-        .select('id, author_id, title, content, author_username, author_role, views, created_at, updated_at')
+        .select('id, author_id, title, content, author_username, author_role, views, created_at, updated_at, image_urls, is_notice, notice_created_at')
         .single<CommunityPostRow>()
 
       if (error) throw error
 
       if (data) {
-        setCommunityPosts((prev) => [communityPostFromRow(data), ...prev])
+        setCommunityPosts((prev) => sortCommunityPosts([communityPostFromRow(data), ...prev]))
       } else {
         await fetchCommunityPosts()
       }
       setCommunityTitle('')
       setCommunityContent('')
+      clearCommunityImageDrafts()
+      setCommunityNoticeDraft(false)
       setCommunityPage(1)
       navigate('/notice/community')
     } catch (error) {
@@ -1802,7 +1918,7 @@ function AppShell() {
         })
         .eq('id', postId)
         .eq('author_id', currentUserId)
-        .select('id, author_id, title, content, author_username, author_role, views, created_at, updated_at')
+        .select('id, author_id, title, content, author_username, author_role, views, created_at, updated_at, image_urls, is_notice, notice_created_at')
         .single<CommunityPostRow>()
 
       if (error) throw error
@@ -1810,7 +1926,7 @@ function AppShell() {
       if (data) {
         const updatedPost = communityPostFromRow(data)
         setCommunityDetailPost(updatedPost)
-        setCommunityPosts((prev) => prev.map((post) => (post.id === updatedPost.id ? updatedPost : post)))
+        setCommunityPosts((prev) => sortCommunityPosts(prev.map((post) => (post.id === updatedPost.id ? updatedPost : post))))
       }
       setEditingCommunityPost(false)
       setEditingCommunityPostTitle('')
@@ -1849,6 +1965,44 @@ function AppShell() {
     } catch (error) {
       const message = typeof error === 'object' && error !== null && 'message' in error ? String((error as { message?: unknown }).message ?? '알 수 없는 오류') : '알 수 없는 오류'
       setCommunityDetailMessage(`게시글 삭제 실패: ${message}`)
+    } finally {
+      setCommunityPostActionSaving(false)
+    }
+  }
+
+  async function handleCommunityNoticeToggle(post: CommunityPost) {
+    if (!supabase || !currentUserId || !canManageApprovals) {
+      setCommunityDetailMessage('부관리자 이상만 공지사항을 관리할 수 있어.')
+      return
+    }
+
+    const nextNoticeState = !post.isNotice
+    setCommunityPostActionSaving(true)
+    setCommunityDetailMessage('')
+    try {
+      const { data, error } = await supabase
+        .from('community_posts')
+        .update({
+          is_notice: nextNoticeState,
+          notice_created_at: nextNoticeState ? new Date().toISOString() : null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', post.id)
+        .eq('author_id', currentUserId)
+        .select('id, author_id, title, content, author_username, author_role, views, created_at, updated_at, image_urls, is_notice, notice_created_at')
+        .single<CommunityPostRow>()
+
+      if (error) throw error
+
+      if (data) {
+        const updatedPost = communityPostFromRow(data)
+        setCommunityDetailPost(updatedPost)
+        setCommunityPosts((prev) => sortCommunityPosts(prev.map((item) => (item.id === updatedPost.id ? updatedPost : item))))
+      }
+      setCommunityDetailMessage(nextNoticeState ? '공지사항으로 등록했습니다.' : '공지사항에서 내렸습니다.')
+    } catch (error) {
+      const message = typeof error === 'object' && error !== null && 'message' in error ? String((error as { message?: unknown }).message ?? '알 수 없는 오류') : '알 수 없는 오류'
+      setCommunityDetailMessage(`공지 변경 실패: ${message}`)
     } finally {
       setCommunityPostActionSaving(false)
     }
@@ -4660,10 +4814,13 @@ function AppShell() {
   }
 
   function CommunityPage() {
-    const totalPages = Math.max(1, Math.ceil(communityPosts.length / communityPostsPerPage))
+    const noticePosts = communityPosts.filter((post) => post.isNotice)
+    const regularPosts = communityPosts.filter((post) => !post.isNotice)
+    const visibleNoticePosts = communityNoticesExpanded ? noticePosts : noticePosts.slice(0, 1)
+    const totalPages = Math.max(1, Math.ceil(regularPosts.length / communityPostsPerPage))
     const safePage = Math.min(communityPage, totalPages)
     const pageStart = (safePage - 1) * communityPostsPerPage
-    const visiblePosts = communityPosts.slice(pageStart, pageStart + communityPostsPerPage)
+    const visiblePosts = regularPosts.slice(pageStart, pageStart + communityPostsPerPage)
 
     return (
       <SectionShell eyebrow="COMMUNITY" title="자유게시판" description="정시를 준비하며 떠오른 생각과 질문을 자유롭게 나누는 공간이야." wide>
@@ -4691,6 +4848,61 @@ function AppShell() {
             </div>
           )}
 
+          {noticePosts.length > 0 && (
+            <div className="overflow-hidden rounded-[1.25rem] border border-blue-200 bg-white shadow-sm">
+              <div className="flex flex-col gap-3 border-b border-blue-100 bg-blue-50 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <div className="text-sm font-black tracking-[0.18em] text-blue-700">NOTICE</div>
+                  <div className="mt-1 text-lg font-black tracking-tight text-slate-950">공지사항 {noticePosts.length}</div>
+                </div>
+                {noticePosts.length > 1 && (
+                  <button
+                    type="button"
+                    onClick={() => setCommunityNoticesExpanded((prev) => !prev)}
+                    className="w-fit rounded-2xl border border-blue-200 bg-white px-4 py-2.5 text-sm font-black text-blue-700 transition hover:bg-blue-100"
+                  >
+                    {communityNoticesExpanded ? '접기' : `펼치기 (${noticePosts.length - 1})`}
+                  </button>
+                )}
+              </div>
+              <div className="divide-y divide-blue-50">
+                {visibleNoticePosts.map((post) => (
+                  <button
+                    key={post.id}
+                    type="button"
+                    onClick={() => {
+                      setCommunityDetailPost(post)
+                      setCommunityDetailMessage('')
+                      navigate(`/notice/community/${post.id}`)
+                    }}
+                    className="grid w-full grid-cols-[4.5rem_1fr_2rem] items-center gap-4 px-5 py-5 text-left transition hover:bg-blue-50/50 md:grid-cols-[5.5rem_1fr_2.5rem] md:px-7"
+                  >
+                    <div className="text-center">
+                      <div className="rounded-full bg-blue-700 px-2 py-1 text-xs font-black text-white">공지</div>
+                      <div className="mt-2 text-sm font-black text-blue-700">{formatCommunityDate(post.noticeCreatedAt ?? post.createdAt)}</div>
+                    </div>
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2">
+                        <div className="truncate text-xl font-black tracking-tight text-slate-900 md:text-2xl">{post.title}</div>
+                        {post.imageUrls.length > 0 && <span className="shrink-0 rounded-full bg-slate-100 px-2 py-1 text-xs font-black text-slate-500">사진 {post.imageUrls.length}</span>}
+                      </div>
+                      <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm font-black">
+                        <span className={post.role === 'admin' ? 'text-red-500' : post.role === 'sub_admin' ? 'text-blue-700' : 'text-slate-700'}>{post.author}</span>
+                        {post.role !== 'member' && (
+                          <span className="rounded-md border border-blue-100 bg-blue-50 px-2 py-0.5 text-xs font-black tracking-[0.18em] text-blue-700">
+                            {getRoleLabel(post.role, true)}
+                          </span>
+                        )}
+                        <span className="text-slate-700">{post.views} VIEW</span>
+                      </div>
+                    </div>
+                    <div className="text-4xl font-light leading-none text-slate-400">›</div>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
           <div className="overflow-hidden rounded-[1.25rem] border border-slate-200 bg-white shadow-sm">
             {communityLoading && visiblePosts.length === 0 ? (
               <div className="px-6 py-14 text-center text-sm font-semibold text-slate-500">게시글을 불러오는 중...</div>
@@ -4714,7 +4926,10 @@ function AppShell() {
                       <div className="mt-2 text-sm font-black text-blue-700">{formatCommunityDate(post.createdAt)}</div>
                     </div>
                     <div className="min-w-0">
-                      <div className="truncate text-xl font-black tracking-tight text-slate-900 md:text-2xl">{post.title}</div>
+                      <div className="flex items-center gap-2">
+                        <div className="truncate text-xl font-black tracking-tight text-slate-900 md:text-2xl">{post.title}</div>
+                        {post.imageUrls.length > 0 && <span className="shrink-0 rounded-full bg-slate-100 px-2 py-1 text-xs font-black text-slate-500">사진 {post.imageUrls.length}</span>}
+                      </div>
                       <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm font-black">
                         <span className={post.role === 'admin' ? 'text-red-500' : post.role === 'sub_admin' ? 'text-blue-700' : 'text-slate-700'}>{post.author}</span>
                         {post.role !== 'member' && (
@@ -4816,6 +5031,7 @@ function AppShell() {
                     <h2 className="text-3xl font-black tracking-tight text-slate-950 md:text-5xl">{post.title}</h2>
                   )}
                   <div className="mt-6 flex flex-wrap items-center gap-3 text-sm font-semibold text-slate-600 md:text-base">
+                    {post.isNotice && <span className="rounded-full bg-blue-700 px-3 py-1 text-xs font-black text-white">공지</span>}
                     <span className="rounded-xl border border-slate-200 bg-white px-4 py-2 font-black">
                       <span className={post.role === 'admin' ? 'text-red-500' : post.role === 'sub_admin' ? 'text-blue-700' : 'text-slate-700'}>{post.author}</span>
                     </span>
@@ -4872,6 +5088,16 @@ function AppShell() {
                           >
                             삭제
                           </button>
+                          {canManageApprovals && (
+                            <button
+                              type="button"
+                              onClick={() => handleCommunityNoticeToggle(post)}
+                              disabled={communityPostActionSaving}
+                              className="rounded-2xl border border-blue-200 bg-blue-50 px-4 py-2.5 text-sm font-black text-blue-700 transition hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-60"
+                            >
+                              {post.isNotice ? '공지 내리기' : '공지 등록'}
+                            </button>
+                          )}
                         </>
                       )}
                     </div>
@@ -4887,6 +5113,15 @@ function AppShell() {
                     />
                   ) : (
                     <div className="min-h-[12rem] whitespace-pre-wrap text-base font-medium leading-8 text-slate-800 md:text-lg">{post.content}</div>
+                  )}
+                  {!editingCommunityPost && post.imageUrls.length > 0 && (
+                    <div className="mt-8 grid gap-4 sm:grid-cols-2">
+                      {post.imageUrls.map((url, index) => (
+                        <a key={`${url}-${index}`} href={url} target="_blank" rel="noreferrer" className="overflow-hidden rounded-2xl border border-slate-200 bg-slate-50 transition hover:border-blue-200">
+                          <img src={url} alt={`첨부 사진 ${index + 1}`} className="max-h-[34rem] w-full object-contain" />
+                        </a>
+                      ))}
+                    </div>
                   )}
                   {communityDetailMessage && (
                     <div className={`mt-5 rounded-2xl border px-4 py-3 text-sm font-semibold ${communityDetailMessage.includes('실패') ? 'border-red-100 bg-red-50 text-red-600' : 'border-blue-100 bg-blue-50 text-blue-700'}`}>
@@ -5105,6 +5340,79 @@ function AppShell() {
                 />
               </div>
 
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5 md:p-6">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <div className="text-lg font-black tracking-tight text-slate-900">사진 첨부</div>
+                    <div className="mt-1 text-sm font-semibold text-slate-500">최대 5장, 장당 5MB 이하의 이미지를 첨부할 수 있어.</div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => communityImageInputRef.current?.click()}
+                    className="rounded-2xl border border-blue-200 bg-white px-4 py-2.5 text-sm font-black text-blue-700 transition hover:bg-blue-50"
+                  >
+                    파일 선택
+                  </button>
+                </div>
+                <input
+                  ref={communityImageInputRef}
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  className="hidden"
+                  onChange={(event) => {
+                    if (event.target.files) addCommunityImageFiles(event.target.files)
+                  }}
+                />
+                <button
+                  type="button"
+                  onClick={() => communityImageInputRef.current?.click()}
+                  onDragOver={(event) => event.preventDefault()}
+                  onDrop={(event) => {
+                    event.preventDefault()
+                    addCommunityImageFiles(event.dataTransfer.files)
+                  }}
+                  className="mt-5 flex min-h-44 w-full flex-col items-center justify-center rounded-2xl border-2 border-dashed border-slate-300 bg-white/60 px-5 py-8 text-center transition hover:border-blue-300 hover:bg-white"
+                >
+                  <div className="text-sm font-black tracking-[0.18em] text-blue-700">UPLOAD</div>
+                  <div className="mt-3 text-lg font-black text-slate-700">사진 클릭 또는 드래그</div>
+                </button>
+                {communityImageDrafts.length > 0 && (
+                  <div className="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                    {communityImageDrafts.map((draft, index) => (
+                      <div key={draft.previewUrl} className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
+                        <img src={draft.previewUrl} alt={`첨부 예정 사진 ${index + 1}`} className="h-44 w-full object-cover" />
+                        <div className="flex items-center justify-between gap-3 px-4 py-3">
+                          <div className="min-w-0 truncate text-sm font-bold text-slate-700">{draft.file.name}</div>
+                          <button
+                            type="button"
+                            onClick={() => removeCommunityImageDraft(index)}
+                            className="shrink-0 text-sm font-black text-red-600 hover:text-red-700"
+                          >
+                            삭제
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {canManageApprovals && (
+                <label className="flex items-center justify-between gap-4 rounded-2xl border border-blue-100 bg-blue-50 px-5 py-4 text-sm font-bold text-blue-900">
+                  <span>
+                    <span className="block text-base font-black">공지사항으로 등록</span>
+                    <span className="mt-1 block text-sm font-semibold text-blue-700">부관리자 이상은 작성과 동시에 자유게시판 상단 공지로 올릴 수 있어.</span>
+                  </span>
+                  <input
+                    type="checkbox"
+                    checked={communityNoticeDraft}
+                    onChange={(event) => setCommunityNoticeDraft(event.target.checked)}
+                    className="h-5 w-5 shrink-0 accent-blue-700"
+                  />
+                </label>
+              )}
+
               {communityMessage && <div className="rounded-2xl border border-red-100 bg-red-50 px-4 py-3 text-sm font-semibold text-red-600">{communityMessage}</div>}
 
               <div className="flex flex-col gap-3 sm:flex-row sm:justify-end">
@@ -5114,6 +5422,8 @@ function AppShell() {
                     setCommunityTitle('')
                     setCommunityContent('')
                     setCommunityMessage('')
+                    clearCommunityImageDrafts()
+                    setCommunityNoticeDraft(false)
                     navigate('/notice/community')
                   }}
                   className="rounded-2xl border border-slate-300 bg-white px-6 py-3 text-sm font-bold text-slate-800 transition hover:border-red-300 hover:text-red-700"
