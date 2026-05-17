@@ -89,6 +89,35 @@ type CommunityPostRow = {
   created_at: string | null
 }
 
+type CommunityReactionKind = 'like' | 'dislike'
+
+type CommunityComment = {
+  id: number
+  postId: number
+  authorId: string
+  author: string
+  role: UserRole
+  content: string
+  createdAt: string
+  updatedAt: string | null
+}
+
+type CommunityCommentRow = {
+  id: number
+  post_id: number
+  author_id: string
+  author_username: string | null
+  author_role: UserRole | null
+  content: string
+  created_at: string | null
+  updated_at: string | null
+}
+
+type CommunityReactionRow = {
+  user_id: string
+  reaction: CommunityReactionKind
+}
+
 type GoalPlanRow = {
   university: string
   department: string
@@ -501,6 +530,19 @@ function communityPostFromRow(row: CommunityPostRow): CommunityPost {
   }
 }
 
+function communityCommentFromRow(row: CommunityCommentRow): CommunityComment {
+  return {
+    id: Number(row.id),
+    postId: Number(row.post_id),
+    authorId: row.author_id,
+    author: row.author_username || '회원',
+    role: normalizeUserRole(row.author_role),
+    content: row.content,
+    createdAt: row.created_at ?? new Date().toISOString(),
+    updatedAt: row.updated_at,
+  }
+}
+
 function SectionShell({
   eyebrow,
   title,
@@ -637,6 +679,16 @@ function AppShell() {
   const [communityDetailPost, setCommunityDetailPost] = useState<CommunityPost | null>(null)
   const [communityDetailLoading, setCommunityDetailLoading] = useState(false)
   const [communityDetailMessage, setCommunityDetailMessage] = useState('')
+  const [communityComments, setCommunityComments] = useState<CommunityComment[]>([])
+  const [communityCommentsLoading, setCommunityCommentsLoading] = useState(false)
+  const [communityCommentDraft, setCommunityCommentDraft] = useState('')
+  const [communityCommentMessage, setCommunityCommentMessage] = useState('')
+  const [communityCommentSaving, setCommunityCommentSaving] = useState(false)
+  const [editingCommunityCommentId, setEditingCommunityCommentId] = useState<number | null>(null)
+  const [editingCommunityCommentDraft, setEditingCommunityCommentDraft] = useState('')
+  const [communityReactionCounts, setCommunityReactionCounts] = useState({ like: 0, dislike: 0 })
+  const [communityUserReaction, setCommunityUserReaction] = useState<CommunityReactionKind | null>(null)
+  const [communityReactionSaving, setCommunityReactionSaving] = useState<CommunityReactionKind | null>(null)
 
   function resetAuthState() {
     setCurrentUserId('')
@@ -699,6 +751,16 @@ function AppShell() {
     setCommunityDetailPost(null)
     setCommunityDetailMessage('')
     setCommunityDetailLoading(false)
+    setCommunityComments([])
+    setCommunityCommentsLoading(false)
+    setCommunityCommentDraft('')
+    setCommunityCommentMessage('')
+    setCommunityCommentSaving(false)
+    setEditingCommunityCommentId(null)
+    setEditingCommunityCommentDraft('')
+    setCommunityReactionCounts({ like: 0, dislike: 0 })
+    setCommunityUserReaction(null)
+    setCommunityReactionSaving(null)
   }
 
   async function loadProfile(userId: string, email: string, userMeta?: Record<string, unknown>, joinedAt?: string) {
@@ -1441,19 +1503,29 @@ function AppShell() {
     if (!isLoggedIn || !isApproved || isRejected || currentSuspensionActive) return
 
     void fetchCommunityPosts()
-  }, [currentSuspensionActive, isApproved, isLoggedIn, isRejected, location.pathname])
+  }, [currentSuspensionActive, currentUserId, isApproved, isLoggedIn, isRejected, location.pathname])
 
   useEffect(() => {
     const match = /^\/notice\/community\/(\d+)$/.exec(location.pathname)
     if (!match) {
       setCommunityDetailPost(null)
       setCommunityDetailMessage('')
+      setCommunityComments([])
+      setCommunityCommentDraft('')
+      setCommunityCommentMessage('')
+      setEditingCommunityCommentId(null)
+      setEditingCommunityCommentDraft('')
+      setCommunityReactionCounts({ like: 0, dislike: 0 })
+      setCommunityUserReaction(null)
       return
     }
     if (!isLoggedIn || !isApproved || isRejected || currentSuspensionActive) return
 
-    void fetchCommunityPost(Number(match[1]))
-  }, [currentSuspensionActive, isApproved, isLoggedIn, isRejected, location.pathname])
+    const postId = Number(match[1])
+    void fetchCommunityPost(postId)
+    void fetchCommunityComments(postId)
+    void fetchCommunityReactions(postId)
+  }, [currentSuspensionActive, currentUserId, isApproved, isLoggedIn, isRejected, location.pathname])
 
   function formatJoinedDate(value: string) {
     if (!value) return '-'
@@ -1468,6 +1540,19 @@ function AppShell() {
     const month = String(date.getMonth() + 1).padStart(2, '0')
     const day = String(date.getDate()).padStart(2, '0')
     return `${month}. ${day}.`
+  }
+
+  function formatCommunityDateTime(value: string) {
+    const date = new Date(value)
+    if (Number.isNaN(date.getTime())) return '-'
+    return date.toLocaleString('ko-KR', {
+      year: 'numeric',
+      month: 'numeric',
+      day: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+      second: '2-digit',
+    })
   }
 
   async function fetchCommunityPosts() {
@@ -1592,6 +1677,224 @@ function AppShell() {
       setCommunityMessage(`글 등록 실패: ${message}`)
     } finally {
       setCommunitySaving(false)
+    }
+  }
+
+  async function fetchCommunityComments(postId: number) {
+    if (!supabase) {
+      setCommunityComments([])
+      return
+    }
+
+    setCommunityCommentsLoading(true)
+    setCommunityCommentMessage('')
+    try {
+      const { data, error } = await supabase
+        .from('community_comments')
+        .select('id, post_id, author_id, author_username, author_role, content, created_at, updated_at')
+        .eq('post_id', postId)
+        .order('created_at', { ascending: true })
+        .order('id', { ascending: true })
+
+      if (error) throw error
+
+      setCommunityComments(((data ?? []) as CommunityCommentRow[]).map(communityCommentFromRow))
+    } catch (error) {
+      const message = typeof error === 'object' && error !== null && 'message' in error ? String((error as { message?: unknown }).message ?? '알 수 없는 오류') : '알 수 없는 오류'
+      setCommunityCommentMessage(`댓글을 불러오지 못했습니다: ${message}`)
+    } finally {
+      setCommunityCommentsLoading(false)
+    }
+  }
+
+  async function fetchCommunityReactions(postId: number) {
+    if (!supabase) {
+      setCommunityReactionCounts({ like: 0, dislike: 0 })
+      setCommunityUserReaction(null)
+      return
+    }
+
+    try {
+      const { data, error } = await supabase
+        .from('community_post_reactions')
+        .select('user_id, reaction')
+        .eq('post_id', postId)
+
+      if (error) throw error
+
+      const rows = (data ?? []) as CommunityReactionRow[]
+      setCommunityReactionCounts({
+        like: rows.filter((row) => row.reaction === 'like').length,
+        dislike: rows.filter((row) => row.reaction === 'dislike').length,
+      })
+      setCommunityUserReaction(rows.find((row) => row.user_id === currentUserId)?.reaction ?? null)
+    } catch (error) {
+      const message = typeof error === 'object' && error !== null && 'message' in error ? String((error as { message?: unknown }).message ?? '알 수 없는 오류') : '알 수 없는 오류'
+      setCommunityCommentMessage(`좋아요/싫어요를 불러오지 못했습니다: ${message}`)
+    }
+  }
+
+  async function handleCommunityReaction(postId: number, reaction: CommunityReactionKind) {
+    if (!supabase || !currentUserId) {
+      setCommunityCommentMessage('로그인 후 이용할 수 있어.')
+      return
+    }
+
+    setCommunityReactionSaving(reaction)
+    setCommunityCommentMessage('')
+    try {
+      if (communityUserReaction === reaction) {
+        const { error } = await supabase
+          .from('community_post_reactions')
+          .delete()
+          .eq('post_id', postId)
+          .eq('user_id', currentUserId)
+
+        if (error) throw error
+      } else {
+        const { error } = await supabase
+          .from('community_post_reactions')
+          .upsert(
+            {
+              post_id: postId,
+              user_id: currentUserId,
+              reaction,
+            },
+            { onConflict: 'post_id,user_id' },
+          )
+
+        if (error) throw error
+      }
+
+      await fetchCommunityReactions(postId)
+    } catch (error) {
+      const message = typeof error === 'object' && error !== null && 'message' in error ? String((error as { message?: unknown }).message ?? '알 수 없는 오류') : '알 수 없는 오류'
+      setCommunityCommentMessage(`반응 저장 실패: ${message}`)
+    } finally {
+      setCommunityReactionSaving(null)
+    }
+  }
+
+  async function handleCommunityCommentSubmit(postId: number) {
+    const content = communityCommentDraft.trim()
+    setCommunityCommentMessage('')
+
+    if (!supabase || !currentUserId) {
+      setCommunityCommentMessage('로그인 후 댓글을 달 수 있어.')
+      return
+    }
+
+    if (!content) {
+      setCommunityCommentMessage('댓글 내용을 입력해줘.')
+      return
+    }
+
+    setCommunityCommentSaving(true)
+    try {
+      const { data, error } = await supabase
+        .from('community_comments')
+        .insert({
+          post_id: postId,
+          author_id: currentUserId,
+          author_username: currentUsername || currentName || currentUserEmail.split('@')[0] || '회원',
+          author_role: currentRole,
+          content,
+        })
+        .select('id, post_id, author_id, author_username, author_role, content, created_at, updated_at')
+        .single<CommunityCommentRow>()
+
+      if (error) throw error
+
+      if (data) {
+        setCommunityComments((prev) => [...prev, communityCommentFromRow(data)])
+      } else {
+        await fetchCommunityComments(postId)
+      }
+      setCommunityCommentDraft('')
+    } catch (error) {
+      const message = typeof error === 'object' && error !== null && 'message' in error ? String((error as { message?: unknown }).message ?? '알 수 없는 오류') : '알 수 없는 오류'
+      setCommunityCommentMessage(`댓글 등록 실패: ${message}`)
+    } finally {
+      setCommunityCommentSaving(false)
+    }
+  }
+
+  function startCommunityCommentEdit(comment: CommunityComment) {
+    setEditingCommunityCommentId(comment.id)
+    setEditingCommunityCommentDraft(comment.content)
+    setCommunityCommentMessage('')
+  }
+
+  async function handleCommunityCommentUpdate(commentId: number) {
+    const content = editingCommunityCommentDraft.trim()
+    setCommunityCommentMessage('')
+
+    if (!supabase || !currentUserId) {
+      setCommunityCommentMessage('로그인 후 이용할 수 있어.')
+      return
+    }
+
+    if (!content) {
+      setCommunityCommentMessage('댓글 내용을 입력해줘.')
+      return
+    }
+
+    setCommunityCommentSaving(true)
+    try {
+      const { data, error } = await supabase
+        .from('community_comments')
+        .update({
+          content,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', commentId)
+        .eq('author_id', currentUserId)
+        .select('id, post_id, author_id, author_username, author_role, content, created_at, updated_at')
+        .single<CommunityCommentRow>()
+
+      if (error) throw error
+
+      if (data) {
+        const updatedComment = communityCommentFromRow(data)
+        setCommunityComments((prev) => prev.map((comment) => (comment.id === commentId ? updatedComment : comment)))
+      }
+      setEditingCommunityCommentId(null)
+      setEditingCommunityCommentDraft('')
+    } catch (error) {
+      const message = typeof error === 'object' && error !== null && 'message' in error ? String((error as { message?: unknown }).message ?? '알 수 없는 오류') : '알 수 없는 오류'
+      setCommunityCommentMessage(`댓글 수정 실패: ${message}`)
+    } finally {
+      setCommunityCommentSaving(false)
+    }
+  }
+
+  async function handleCommunityCommentDelete(commentId: number) {
+    if (!supabase || !currentUserId) {
+      setCommunityCommentMessage('로그인 후 이용할 수 있어.')
+      return
+    }
+
+    setCommunityCommentSaving(true)
+    setCommunityCommentMessage('')
+    try {
+      const { error } = await supabase
+        .from('community_comments')
+        .delete()
+        .eq('id', commentId)
+        .eq('author_id', currentUserId)
+
+      if (error) throw error
+
+      setCommunityComments((prev) => prev.filter((comment) => comment.id !== commentId))
+      if (editingCommunityCommentId === commentId) {
+        setEditingCommunityCommentId(null)
+        setEditingCommunityCommentDraft('')
+      }
+    } catch (error) {
+      const message = typeof error === 'object' && error !== null && 'message' in error ? String((error as { message?: unknown }).message ?? '알 수 없는 오류') : '알 수 없는 오류'
+      setCommunityCommentMessage(`댓글 삭제 실패: ${message}`)
+    } finally {
+      setCommunityCommentSaving(false)
     }
   }
 
@@ -4025,10 +4328,11 @@ function AppShell() {
     const match = /^\/notice\/community\/(\d+)$/.exec(location.pathname)
     const postId = match ? Number(match[1]) : null
     const post = (postId ? communityPosts.find((item) => item.id === postId) : null) ?? communityDetailPost
+    const canUsePostActions = Boolean(postId && post)
 
     return (
       <SectionShell eyebrow="COMMUNITY" title="자유게시판" description="게시글 내용을 확인하는 공간이야." wide>
-        <div className="space-y-6">
+        <div className="space-y-8">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <button
               type="button"
@@ -4053,26 +4357,165 @@ function AppShell() {
               <div className="px-6 py-16 text-center text-sm font-semibold text-red-600">{communityDetailMessage}</div>
             ) : post ? (
               <>
-                <div className="border-b border-slate-200 bg-slate-50 px-5 py-6 md:px-8">
-                  <div className="flex flex-wrap items-center gap-3 text-sm font-black text-slate-500">
-                    <span>#{post.id}</span>
-                    <span>{formatCommunityDate(post.createdAt)}</span>
-                    <span>{post.views} VIEW</span>
-                  </div>
-                  <h2 className="mt-4 text-3xl font-black tracking-tight text-slate-950 md:text-4xl">{post.title}</h2>
-                  <div className="mt-4 flex flex-wrap items-center gap-3 text-sm font-black">
-                    <span className={post.role === 'admin' ? 'text-red-500' : post.role === 'sub_admin' ? 'text-blue-700' : 'text-slate-700'}>{post.author}</span>
-                    <span className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-black text-slate-600">{getRoleLabel(post.role, true)}</span>
+                <div className="border-b border-slate-200 bg-slate-50 px-5 py-7 md:px-10 md:py-10">
+                  <h2 className="text-3xl font-black tracking-tight text-slate-950 md:text-5xl">{post.title}</h2>
+                  <div className="mt-6 flex flex-wrap items-center gap-3 text-sm font-semibold text-slate-600 md:text-base">
+                    <span className="rounded-xl border border-slate-200 bg-white px-4 py-2 font-black">
+                      <span className={post.role === 'admin' ? 'text-red-500' : post.role === 'sub_admin' ? 'text-blue-700' : 'text-slate-700'}>{post.author}</span>
+                    </span>
+                    <span className="hidden h-5 w-px bg-slate-300 sm:block" />
+                    <span>{formatCommunityDateTime(post.createdAt)}</span>
+                    <span className="hidden h-5 w-px bg-slate-300 sm:block" />
+                    <span>조회수 {post.views}</span>
+                    {post.role !== 'member' && (
+                      <span className="rounded-md border border-blue-100 bg-blue-50 px-2 py-1 text-xs font-black tracking-[0.14em] text-blue-700">
+                        {getRoleLabel(post.role, true)}
+                      </span>
+                    )}
                   </div>
                 </div>
-                <div className="min-h-[24rem] whitespace-pre-wrap px-5 py-7 text-base font-medium leading-8 text-slate-800 md:px-8 md:py-9 md:text-lg">
-                  {post.content}
+                <div className="px-5 py-8 md:px-10 md:py-10">
+                  <div className="min-h-[12rem] whitespace-pre-wrap text-base font-medium leading-8 text-slate-800 md:text-lg">{post.content}</div>
+                  <div className="mt-10 border-t border-slate-200 pt-8">
+                    <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+                      <div className="flex flex-wrap items-center gap-3">
+                        <button
+                          type="button"
+                          onClick={() => postId && handleCommunityReaction(postId, 'like')}
+                          disabled={!canUsePostActions || communityReactionSaving !== null}
+                          className={`rounded-xl px-5 py-3 text-sm font-black transition disabled:cursor-not-allowed disabled:opacity-60 ${
+                            communityUserReaction === 'like' ? 'bg-blue-700 text-white shadow-lg shadow-blue-700/20' : 'bg-blue-50 text-slate-800 hover:bg-blue-100'
+                          }`}
+                        >
+                          좋아요 <span className={communityUserReaction === 'like' ? 'text-white' : 'text-blue-700'}>{communityReactionCounts.like}</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => postId && handleCommunityReaction(postId, 'dislike')}
+                          disabled={!canUsePostActions || communityReactionSaving !== null}
+                          className={`rounded-xl px-5 py-3 text-sm font-black transition disabled:cursor-not-allowed disabled:opacity-60 ${
+                            communityUserReaction === 'dislike' ? 'bg-rose-600 text-white shadow-lg shadow-rose-600/20' : 'bg-rose-50 text-slate-800 hover:bg-rose-100'
+                          }`}
+                        >
+                          싫어요 <span className={communityUserReaction === 'dislike' ? 'text-white' : 'text-rose-500'}>{communityReactionCounts.dislike}</span>
+                        </button>
+                      </div>
+                    </div>
+                  </div>
                 </div>
               </>
             ) : (
               <div className="px-6 py-16 text-center text-sm font-semibold text-slate-500">게시글을 찾을 수 없습니다.</div>
             )}
           </div>
+
+          {post && (
+            <div className="space-y-5">
+              <div className="text-2xl font-black tracking-tight text-slate-950">댓글 {communityComments.length}</div>
+
+              <div className="rounded-[1.25rem] border border-slate-200 bg-white p-5 shadow-sm md:p-7">
+                <textarea
+                  value={communityCommentDraft}
+                  onChange={(event) => setCommunityCommentDraft(event.target.value)}
+                  className="min-h-[9rem] w-full resize-y rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 text-base font-semibold leading-7 text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-blue-400 focus:bg-white"
+                  placeholder="존중하며 소통해 주세요..."
+                  maxLength={3000}
+                />
+                <div className="mt-4 flex flex-col gap-3 border-t border-slate-100 pt-4 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="text-sm font-semibold text-slate-500">따뜻한 댓글을 남겨주세요.</div>
+                  <button
+                    type="button"
+                    onClick={() => postId && handleCommunityCommentSubmit(postId)}
+                    disabled={communityCommentSaving || !communityCommentDraft.trim()}
+                    className="rounded-2xl bg-blue-700 px-6 py-3 text-sm font-black text-white shadow-lg shadow-blue-700/20 transition hover:bg-blue-800 disabled:cursor-not-allowed disabled:bg-blue-300"
+                  >
+                    {communityCommentSaving ? '등록 중...' : '댓글 달기'}
+                  </button>
+                </div>
+              </div>
+
+              {communityCommentMessage && (
+                <div className={`rounded-2xl border px-4 py-3 text-sm font-semibold ${communityCommentMessage.includes('실패') || communityCommentMessage.includes('못했습니다') ? 'border-red-100 bg-red-50 text-red-600' : 'border-blue-100 bg-blue-50 text-blue-700'}`}>
+                  {communityCommentMessage}
+                </div>
+              )}
+
+              <div className="space-y-4">
+                {communityCommentsLoading ? (
+                  <div className="rounded-[1.25rem] border border-slate-200 bg-white px-5 py-10 text-center text-sm font-semibold text-slate-500">댓글을 불러오는 중...</div>
+                ) : communityComments.length === 0 ? (
+                  <div className="rounded-[1.25rem] border border-slate-200 bg-white px-5 py-10 text-center text-sm font-semibold text-slate-500">아직 댓글이 없습니다.</div>
+                ) : (
+                  communityComments.map((comment) => {
+                    const isOwnComment = comment.authorId === currentUserId
+                    const isEditing = editingCommunityCommentId === comment.id
+
+                    return (
+                      <div key={comment.id} className="rounded-[1.25rem] border border-slate-200 bg-white p-5 shadow-sm md:p-7">
+                        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className={`font-black ${comment.role === 'admin' ? 'text-red-500' : comment.role === 'sub_admin' ? 'text-blue-700' : 'text-slate-900'}`}>{comment.author}</span>
+                            {comment.role !== 'member' && (
+                              <span className="rounded-md border border-blue-100 bg-blue-50 px-2 py-0.5 text-xs font-black tracking-[0.14em] text-blue-700">
+                                {getRoleLabel(comment.role, true)}
+                              </span>
+                            )}
+                            {comment.updatedAt && <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-bold text-slate-500">수정됨</span>}
+                          </div>
+                          <div className="flex flex-wrap items-center gap-3 text-sm font-semibold text-slate-500">
+                            <span>{formatCommunityDateTime(comment.createdAt)}</span>
+                            {isOwnComment && !isEditing && (
+                              <>
+                                <button type="button" onClick={() => startCommunityCommentEdit(comment)} className="font-black text-blue-700 hover:text-blue-900">
+                                  수정
+                                </button>
+                                <button type="button" onClick={() => handleCommunityCommentDelete(comment.id)} className="font-black text-rose-600 hover:text-rose-700">
+                                  삭제
+                                </button>
+                              </>
+                            )}
+                          </div>
+                        </div>
+
+                        {isEditing ? (
+                          <div className="mt-4 space-y-3">
+                            <textarea
+                              value={editingCommunityCommentDraft}
+                              onChange={(event) => setEditingCommunityCommentDraft(event.target.value)}
+                              className="min-h-[8rem] w-full resize-y rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-base font-semibold leading-7 text-slate-900 outline-none transition focus:border-blue-400 focus:bg-white"
+                              maxLength={3000}
+                            />
+                            <div className="flex flex-wrap justify-end gap-2">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setEditingCommunityCommentId(null)
+                                  setEditingCommunityCommentDraft('')
+                                }}
+                                className="rounded-2xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-bold text-slate-700 transition hover:border-blue-300 hover:text-blue-700"
+                              >
+                                취소
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleCommunityCommentUpdate(comment.id)}
+                                disabled={communityCommentSaving || !editingCommunityCommentDraft.trim()}
+                                className="rounded-2xl bg-blue-700 px-4 py-2.5 text-sm font-black text-white transition hover:bg-blue-800 disabled:cursor-not-allowed disabled:bg-blue-300"
+                              >
+                                저장
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="mt-5 whitespace-pre-wrap text-base font-medium leading-8 text-slate-800">{comment.content}</div>
+                        )}
+                      </div>
+                    )
+                  })
+                )}
+              </div>
+            </div>
+          )}
         </div>
       </SectionShell>
     )
