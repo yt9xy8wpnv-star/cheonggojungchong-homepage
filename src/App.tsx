@@ -634,6 +634,9 @@ function AppShell() {
   const [communityContent, setCommunityContent] = useState('')
   const [communityMessage, setCommunityMessage] = useState('')
   const [communitySaving, setCommunitySaving] = useState(false)
+  const [communityDetailPost, setCommunityDetailPost] = useState<CommunityPost | null>(null)
+  const [communityDetailLoading, setCommunityDetailLoading] = useState(false)
+  const [communityDetailMessage, setCommunityDetailMessage] = useState('')
 
   function resetAuthState() {
     setCurrentUserId('')
@@ -693,6 +696,9 @@ function AppShell() {
     setCommunityContent('')
     setCommunityMessage('')
     setCommunitySaving(false)
+    setCommunityDetailPost(null)
+    setCommunityDetailMessage('')
+    setCommunityDetailLoading(false)
   }
 
   async function loadProfile(userId: string, email: string, userMeta?: Record<string, unknown>, joinedAt?: string) {
@@ -1437,6 +1443,18 @@ function AppShell() {
     void fetchCommunityPosts()
   }, [currentSuspensionActive, isApproved, isLoggedIn, isRejected, location.pathname])
 
+  useEffect(() => {
+    const match = /^\/notice\/community\/(\d+)$/.exec(location.pathname)
+    if (!match) {
+      setCommunityDetailPost(null)
+      setCommunityDetailMessage('')
+      return
+    }
+    if (!isLoggedIn || !isApproved || isRejected || currentSuspensionActive) return
+
+    void fetchCommunityPost(Number(match[1]))
+  }, [currentSuspensionActive, isApproved, isLoggedIn, isRejected, location.pathname])
+
   function formatJoinedDate(value: string) {
     if (!value) return '-'
     const date = new Date(value)
@@ -1478,6 +1496,49 @@ function AppShell() {
       setCommunityMessage(`게시글을 불러오지 못했습니다: ${message}`)
     } finally {
       setCommunityLoading(false)
+    }
+  }
+
+  async function fetchCommunityPost(postId: number) {
+    const localPost = communityPosts.find((post) => post.id === postId) ?? null
+    if (localPost) {
+      setCommunityDetailPost(localPost)
+      setCommunityDetailMessage('')
+      return
+    }
+
+    if (!supabase) {
+      setCommunityDetailPost(null)
+      setCommunityDetailMessage('게시글을 찾을 수 없습니다.')
+      return
+    }
+
+    setCommunityDetailLoading(true)
+    setCommunityDetailMessage('')
+    try {
+      const { data, error } = await supabase
+        .from('community_posts')
+        .select('id, title, content, author_username, author_role, views, created_at')
+        .eq('id', postId)
+        .maybeSingle<CommunityPostRow>()
+
+      if (error) throw error
+
+      if (!data) {
+        setCommunityDetailPost(null)
+        setCommunityDetailMessage('게시글을 찾을 수 없습니다.')
+        return
+      }
+
+      const post = communityPostFromRow(data)
+      setCommunityDetailPost(post)
+      setCommunityPosts((prev) => (prev.some((item) => item.id === post.id) ? prev : [post, ...prev]))
+    } catch (error) {
+      const message = typeof error === 'object' && error !== null && 'message' in error ? String((error as { message?: unknown }).message ?? '알 수 없는 오류') : '알 수 없는 오류'
+      setCommunityDetailPost(null)
+      setCommunityDetailMessage(`게시글을 불러오지 못했습니다: ${message}`)
+    } finally {
+      setCommunityDetailLoading(false)
     }
   }
 
@@ -3892,6 +3953,11 @@ function AppShell() {
                   <button
                     key={post.id}
                     type="button"
+                    onClick={() => {
+                      setCommunityDetailPost(post)
+                      setCommunityDetailMessage('')
+                      navigate(`/notice/community/${post.id}`)
+                    }}
                     className="grid w-full grid-cols-[4.5rem_1fr_2rem] items-center gap-4 px-5 py-5 text-left transition hover:bg-slate-50 md:grid-cols-[5.5rem_1fr_2.5rem] md:px-7"
                   >
                     <div className="text-center">
@@ -3949,6 +4015,63 @@ function AppShell() {
                 다음
               </button>
             </div>
+          </div>
+        </div>
+      </SectionShell>
+    )
+  }
+
+  function CommunityPostDetailPage() {
+    const match = /^\/notice\/community\/(\d+)$/.exec(location.pathname)
+    const postId = match ? Number(match[1]) : null
+    const post = (postId ? communityPosts.find((item) => item.id === postId) : null) ?? communityDetailPost
+
+    return (
+      <SectionShell eyebrow="COMMUNITY" title="자유게시판" description="게시글 내용을 확인하는 공간이야." wide>
+        <div className="space-y-6">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <button
+              type="button"
+              onClick={() => navigate('/notice/community')}
+              className="w-fit rounded-2xl border border-slate-300 bg-white px-5 py-3 text-sm font-bold text-slate-800 transition hover:border-blue-300 hover:text-blue-700"
+            >
+              목록으로 돌아가기
+            </button>
+            <button
+              type="button"
+              onClick={() => navigate('/notice/community/new')}
+              className="w-fit rounded-2xl bg-blue-700 px-5 py-3 text-sm font-black text-white shadow-lg shadow-blue-700/20 transition hover:bg-blue-800"
+            >
+              새 글 작성하기
+            </button>
+          </div>
+
+          <div className="overflow-hidden rounded-[1.5rem] border border-slate-200 bg-white shadow-sm">
+            {communityDetailLoading && !post ? (
+              <div className="px-6 py-16 text-center text-sm font-semibold text-slate-500">게시글을 불러오는 중...</div>
+            ) : communityDetailMessage && !post ? (
+              <div className="px-6 py-16 text-center text-sm font-semibold text-red-600">{communityDetailMessage}</div>
+            ) : post ? (
+              <>
+                <div className="border-b border-slate-200 bg-slate-50 px-5 py-6 md:px-8">
+                  <div className="flex flex-wrap items-center gap-3 text-sm font-black text-slate-500">
+                    <span>#{post.id}</span>
+                    <span>{formatCommunityDate(post.createdAt)}</span>
+                    <span>{post.views} VIEW</span>
+                  </div>
+                  <h2 className="mt-4 text-3xl font-black tracking-tight text-slate-950 md:text-4xl">{post.title}</h2>
+                  <div className="mt-4 flex flex-wrap items-center gap-3 text-sm font-black">
+                    <span className={post.role === 'admin' ? 'text-red-500' : post.role === 'sub_admin' ? 'text-blue-700' : 'text-slate-700'}>{post.author}</span>
+                    <span className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-black text-slate-600">{getRoleLabel(post.role, true)}</span>
+                  </div>
+                </div>
+                <div className="min-h-[24rem] whitespace-pre-wrap px-5 py-7 text-base font-medium leading-8 text-slate-800 md:px-8 md:py-9 md:text-lg">
+                  {post.content}
+                </div>
+              </>
+            ) : (
+              <div className="px-6 py-16 text-center text-sm font-semibold text-slate-500">게시글을 찾을 수 없습니다.</div>
+            )}
           </div>
         </div>
       </SectionShell>
@@ -4148,6 +4271,7 @@ function AppShell() {
           <Route path="/notice" element={NoticePage()} />
           <Route path="/notice/community" element={requireApproved(() => CommunityPage())} />
           <Route path="/notice/community/new" element={requireApproved(() => CommunityWritePage())} />
+          <Route path="/notice/community/:postId" element={requireApproved(() => CommunityPostDetailPage())} />
           <Route path="/notice/press" element={PressPage()} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
