@@ -15,6 +15,11 @@ create table if not exists public.profiles (
   is_admin boolean not null default false,
   role text not null default 'member' check (role in ('member', 'sub_admin', 'admin')),
   is_approved boolean not null default false,
+  is_rejected boolean not null default false,
+  rejected_at timestamptz,
+  suspension_starts_at timestamptz,
+  suspension_ends_at timestamptz,
+  is_suspended_permanently boolean not null default false,
   created_at timestamptz not null default now()
 );
 
@@ -33,6 +38,11 @@ alter table public.profiles add column if not exists second_foreign_subject text
 alter table public.profiles add column if not exists is_admin boolean default false;
 alter table public.profiles add column if not exists role text default 'member';
 alter table public.profiles add column if not exists is_approved boolean default false;
+alter table public.profiles add column if not exists is_rejected boolean default false;
+alter table public.profiles add column if not exists rejected_at timestamptz;
+alter table public.profiles add column if not exists suspension_starts_at timestamptz;
+alter table public.profiles add column if not exists suspension_ends_at timestamptz;
+alter table public.profiles add column if not exists is_suspended_permanently boolean default false;
 alter table public.profiles add column if not exists created_at timestamptz default now();
 
 update public.profiles as profiles
@@ -53,6 +63,8 @@ set
     else 'member'
   end,
   is_approved = coalesce(profiles.is_approved, false),
+  is_rejected = coalesce(profiles.is_rejected, false),
+  is_suspended_permanently = coalesce(profiles.is_suspended_permanently, false),
   created_at = coalesce(profiles.created_at, users.created_at, now())
 from auth.users as users
 where profiles.id = users.id;
@@ -60,6 +72,13 @@ where profiles.id = users.id;
 update public.profiles
 set email = coalesce(email, '')
 where email is null;
+
+update public.profiles
+set
+  is_rejected = coalesce(is_rejected, false),
+  is_suspended_permanently = coalesce(is_suspended_permanently, false)
+where is_rejected is null
+  or is_suspended_permanently is null;
 
 alter table public.profiles alter column email set default '';
 alter table public.profiles alter column email set not null;
@@ -75,6 +94,10 @@ alter table public.profiles alter column is_admin set not null;
 alter table public.profiles alter column role set default 'member';
 alter table public.profiles alter column role set not null;
 alter table public.profiles alter column is_approved set not null;
+alter table public.profiles alter column is_rejected set default false;
+alter table public.profiles alter column is_rejected set not null;
+alter table public.profiles alter column is_suspended_permanently set default false;
+alter table public.profiles alter column is_suspended_permanently set not null;
 alter table public.profiles alter column created_at set not null;
 
 alter table public.profiles enable row level security;

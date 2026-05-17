@@ -15,6 +15,11 @@ insert into public.profiles (
   is_admin,
   role,
   is_approved,
+  is_rejected,
+  rejected_at,
+  suspension_starts_at,
+  suspension_ends_at,
+  is_suspended_permanently,
   created_at
 )
 select
@@ -33,6 +38,11 @@ select
   coalesce(nullif(users.raw_user_meta_data ->> 'second_foreign_subject', ''), '응시하지 않음'),
   false,
   'member',
+  false,
+  false,
+  null,
+  null,
+  null,
   false,
   coalesce(users.created_at, now())
 from auth.users

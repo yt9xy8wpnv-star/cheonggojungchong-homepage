@@ -19,6 +19,11 @@ type ProfileRow = {
   created_at: string | null
   is_admin: boolean
   is_approved: boolean
+  is_rejected: boolean | null
+  rejected_at: string | null
+  suspension_starts_at: string | null
+  suspension_ends_at: string | null
+  is_suspended_permanently: boolean | null
   role: UserRole | null
 }
 
@@ -89,6 +94,8 @@ type StudyTimerRow = {
 
 type UserRole = 'member' | 'sub_admin' | 'admin'
 
+const roleOptions: UserRole[] = ['member', 'sub_admin', 'admin']
+
 const viteEnv =
   typeof import.meta !== 'undefined' &&
   import.meta &&
@@ -112,6 +119,38 @@ function getRoleLabel(role: UserRole, approved: boolean) {
   if (role === 'admin') return '관리자'
   if (role === 'sub_admin') return '부관리자'
   return approved ? '일반 회원' : '승인 대기'
+}
+
+function getRoleRank(role: UserRole) {
+  if (role === 'admin') return 3
+  if (role === 'sub_admin') return 2
+  return 1
+}
+
+function formatDateInputValue(date = new Date()) {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
+function isSuspensionActive(profile: Pick<ProfileRow, 'is_suspended_permanently' | 'suspension_starts_at' | 'suspension_ends_at'>) {
+  if (profile.is_suspended_permanently) return true
+  if (!profile.suspension_starts_at || !profile.suspension_ends_at) return false
+
+  const now = Date.now()
+  const start = new Date(profile.suspension_starts_at).getTime()
+  const end = new Date(profile.suspension_ends_at).getTime()
+  return Number.isFinite(start) && Number.isFinite(end) && now >= start && now <= end
+}
+
+function getSuspensionLabel(profile: Pick<ProfileRow, 'is_suspended_permanently' | 'suspension_starts_at' | 'suspension_ends_at'>) {
+  if (profile.is_suspended_permanently) return '영구정지'
+  if (!profile.suspension_starts_at || !profile.suspension_ends_at) return '정상'
+
+  const start = new Date(profile.suspension_starts_at).toLocaleDateString('ko-KR')
+  const end = new Date(profile.suspension_ends_at).toLocaleDateString('ko-KR')
+  return `${start} - ${end}`
 }
 
 function formatStudentInfo(profile: Pick<ProfileRow, 'grade' | 'class_no' | 'student_no'>) {
@@ -447,17 +486,35 @@ function AppShell() {
   const [isSubAdmin, setIsSubAdmin] = useState(false)
   const [currentRole, setCurrentRole] = useState<UserRole>('member')
   const [isApproved, setIsApproved] = useState(false)
+  const [isRejected, setIsRejected] = useState(false)
+  const [rejectedAt, setRejectedAt] = useState('')
+  const [currentSuspensionStartsAt, setCurrentSuspensionStartsAt] = useState('')
+  const [currentSuspensionEndsAt, setCurrentSuspensionEndsAt] = useState('')
+  const [currentSuspensionPermanent, setCurrentSuspensionPermanent] = useState(false)
   const [approvalProfiles, setApprovalProfiles] = useState<ApprovalProfileRow[]>([])
   const [approvalLoading, setApprovalLoading] = useState(false)
   const [approvalMessage, setApprovalMessage] = useState('')
   const [approvingProfileId, setApprovingProfileId] = useState<string | null>(null)
+  const [rejectingProfileId, setRejectingProfileId] = useState<string | null>(null)
   const [expandedApprovalProfileId, setExpandedApprovalProfileId] = useState<string | null>(null)
   const [memberProfiles, setMemberProfiles] = useState<MemberProfileRow[]>([])
   const [memberLoading, setMemberLoading] = useState(false)
   const [memberMessage, setMemberMessage] = useState('')
-  const [promotingProfileId, setPromotingProfileId] = useState<string | null>(null)
+  const [updatingRoleProfileId, setUpdatingRoleProfileId] = useState<string | null>(null)
   const [expandedMemberProfileId, setExpandedMemberProfileId] = useState<string | null>(null)
+  const [suspensionProfile, setSuspensionProfile] = useState<MemberProfileRow | null>(null)
+  const [suspensionStartsAt, setSuspensionStartsAt] = useState(formatDateInputValue())
+  const [suspensionEndsAt, setSuspensionEndsAt] = useState(formatDateInputValue())
+  const [suspensionPermanent, setSuspensionPermanent] = useState(false)
+  const [suspendingProfileId, setSuspendingProfileId] = useState<string | null>(null)
   const canManageApprovals = isAdmin || isSubAdmin
+  const currentSuspensionStatus = {
+    is_suspended_permanently: currentSuspensionPermanent,
+    suspension_starts_at: currentSuspensionStartsAt || null,
+    suspension_ends_at: currentSuspensionEndsAt || null,
+  }
+  const currentSuspensionActive = isSuspensionActive(currentSuspensionStatus)
+  const currentSuspensionLabel = getSuspensionLabel(currentSuspensionStatus)
 
   const [studySeconds, setStudySeconds] = useState(0)
   const [studyRunning, setStudyRunning] = useState(false)
@@ -523,14 +580,25 @@ function AppShell() {
     setIsSubAdmin(false)
     setCurrentRole('member')
     setIsApproved(false)
+    setIsRejected(false)
+    setRejectedAt('')
+    setCurrentSuspensionStartsAt('')
+    setCurrentSuspensionEndsAt('')
+    setCurrentSuspensionPermanent(false)
     setApprovalProfiles([])
     setApprovalMessage('')
     setApprovingProfileId(null)
+    setRejectingProfileId(null)
     setExpandedApprovalProfileId(null)
     setMemberProfiles([])
     setMemberMessage('')
-    setPromotingProfileId(null)
+    setUpdatingRoleProfileId(null)
     setExpandedMemberProfileId(null)
+    setSuspensionProfile(null)
+    setSuspensionStartsAt(formatDateInputValue())
+    setSuspensionEndsAt(formatDateInputValue())
+    setSuspensionPermanent(false)
+    setSuspendingProfileId(null)
     setStudySeconds(0)
     setStudyRunning(false)
     setCurrentStudySubject('국어')
@@ -564,6 +632,11 @@ function AppShell() {
       setIsSubAdmin(false)
       setCurrentRole('member')
       setIsApproved(false)
+      setIsRejected(false)
+      setRejectedAt('')
+      setCurrentSuspensionStartsAt('')
+      setCurrentSuspensionEndsAt('')
+      setCurrentSuspensionPermanent(false)
       return
     }
 
@@ -578,7 +651,7 @@ function AppShell() {
 
     const { data, error } = await supabase
       .from('profiles')
-      .select('email, username, name, grade, class_no, student_no, korean_subject, math_subject, english_choice, inquiry1_subject, inquiry2_subject, second_foreign_subject, created_at, is_admin, is_approved, role')
+      .select('email, username, name, grade, class_no, student_no, korean_subject, math_subject, english_choice, inquiry1_subject, inquiry2_subject, second_foreign_subject, created_at, is_admin, is_approved, is_rejected, rejected_at, suspension_starts_at, suspension_ends_at, is_suspended_permanently, role')
       .eq('id', userId)
       .maybeSingle<ProfileRow>()
 
@@ -599,7 +672,21 @@ function AppShell() {
       setIsSubAdmin(false)
       setCurrentRole('member')
       setIsApproved(false)
+      setIsRejected(false)
+      setRejectedAt('')
+      setCurrentSuspensionStartsAt('')
+      setCurrentSuspensionEndsAt('')
+      setCurrentSuspensionPermanent(false)
       return
+    }
+
+    const dataSubjectSelections: SignupSubjectSelections = {
+      korean: data.korean_subject || initialSignupSubjectSelections.korean,
+      math: data.math_subject || initialSignupSubjectSelections.math,
+      english: data.english_choice || initialSignupSubjectSelections.english,
+      inquiry1: data.inquiry1_subject || initialSignupSubjectSelections.inquiry1,
+      inquiry2: data.inquiry2_subject || initialSignupSubjectSelections.inquiry2,
+      secondForeign: data.second_foreign_subject || initialSignupSubjectSelections.secondForeign,
     }
 
     setCurrentUserEmail(email)
@@ -609,14 +696,19 @@ function AppShell() {
     setCurrentClassNo(data.class_no ?? null)
     setCurrentStudentNo(data.student_no ?? null)
     setCurrentJoinedAt(data.created_at ?? joinedAt ?? '')
-    setCurrentSubjectSelections(subjectSelections)
+    setCurrentSubjectSelections(dataSubjectSelections)
     setProfileEditUsername(data.username)
-    setProfileEditSubjects(subjectSelections)
+    setProfileEditSubjects(dataSubjectSelections)
     const role = normalizeUserRole(data.role, data.is_admin)
     setCurrentRole(role)
     setIsAdmin(role === 'admin')
     setIsSubAdmin(role === 'sub_admin')
     setIsApproved(data.is_approved)
+    setIsRejected(Boolean(data.is_rejected))
+    setRejectedAt(data.rejected_at ?? '')
+    setCurrentSuspensionStartsAt(data.suspension_starts_at ?? '')
+    setCurrentSuspensionEndsAt(data.suspension_ends_at ?? '')
+    setCurrentSuspensionPermanent(Boolean(data.is_suspended_permanently))
   }
 
   useEffect(() => {
@@ -868,6 +960,11 @@ function AppShell() {
       is_admin: false,
       role: 'member',
       is_approved: false,
+      is_rejected: false,
+      rejected_at: null,
+      suspension_starts_at: null,
+      suspension_ends_at: null,
+      is_suspended_permanently: false,
       created_at: user.created_at ?? new Date().toISOString(),
     })
 
@@ -1339,8 +1436,9 @@ function AppShell() {
     try {
       const { data, error } = await supabase
         .from('profiles')
-        .select('id, email, username, name, grade, class_no, student_no, korean_subject, math_subject, english_choice, inquiry1_subject, inquiry2_subject, second_foreign_subject, created_at, is_admin, is_approved, role')
+        .select('id, email, username, name, grade, class_no, student_no, korean_subject, math_subject, english_choice, inquiry1_subject, inquiry2_subject, second_foreign_subject, created_at, is_admin, is_approved, is_rejected, rejected_at, suspension_starts_at, suspension_ends_at, is_suspended_permanently, role')
         .or('is_approved.eq.false,is_approved.is.null')
+        .or('is_rejected.eq.false,is_rejected.is.null')
         .order('created_at', { ascending: false })
 
       if (error) throw error
@@ -1380,6 +1478,31 @@ function AppShell() {
     }
   }
 
+  async function handleRejectProfile(profileId: string) {
+    if (!supabase || !isLoggedIn || !canManageApprovals) {
+      setApprovalMessage('관리자 또는 부관리자만 회원가입을 거절할 수 있습니다.')
+      return
+    }
+
+    setRejectingProfileId(profileId)
+    setApprovalMessage('')
+    try {
+      const { error } = await supabase.rpc('reject_profile', {
+        target_profile_id: profileId,
+      })
+
+      if (error) throw error
+
+      setApprovalProfiles((prev) => prev.filter((profile) => profile.id !== profileId))
+      setApprovalMessage('회원가입 신청을 거절했습니다.')
+    } catch (error) {
+      const message = typeof error === 'object' && error !== null && 'message' in error ? String((error as { message?: unknown }).message ?? '알 수 없는 오류') : '알 수 없는 오류'
+      setApprovalMessage(`회원가입 거절 실패: ${message}`)
+    } finally {
+      setRejectingProfileId(null)
+    }
+  }
+
   async function fetchMemberProfiles() {
     if (!supabase || !isLoggedIn || !canManageApprovals) return
 
@@ -1388,7 +1511,7 @@ function AppShell() {
     try {
       let query = supabase
         .from('profiles')
-        .select('id, email, username, name, grade, class_no, student_no, korean_subject, math_subject, english_choice, inquiry1_subject, inquiry2_subject, second_foreign_subject, created_at, is_admin, is_approved, role')
+        .select('id, email, username, name, grade, class_no, student_no, korean_subject, math_subject, english_choice, inquiry1_subject, inquiry2_subject, second_foreign_subject, created_at, is_admin, is_approved, is_rejected, rejected_at, suspension_starts_at, suspension_ends_at, is_suspended_permanently, role')
         .eq('is_approved', true)
         .order('created_at', { ascending: false })
 
@@ -1407,37 +1530,109 @@ function AppShell() {
     }
   }
 
-  async function handlePromoteProfile(profile: MemberProfileRow) {
+  function canEditMemberProfile(profile: MemberProfileRow) {
+    const targetRole = normalizeUserRole(profile.role, profile.is_admin)
+    return profile.id !== currentUserId && getRoleRank(currentRole) > getRoleRank(targetRole)
+  }
+
+  function getEditableRoleOptions() {
+    return roleOptions.filter((role) => getRoleRank(role) <= getRoleRank(currentRole))
+  }
+
+  async function handleRoleChange(profile: MemberProfileRow, nextRole: UserRole) {
     if (!supabase || !isLoggedIn || !canManageApprovals) {
       setMemberMessage('관리자 또는 부관리자만 회원 권한을 관리할 수 있습니다.')
       return
     }
 
     const role = normalizeUserRole(profile.role, profile.is_admin)
-    const nextRole: UserRole | null = role === 'member' ? 'sub_admin' : role === 'sub_admin' && isAdmin ? 'admin' : null
+    if (role === nextRole) return
 
-    if (!nextRole) {
-      setMemberMessage('현재 계정으로는 이 회원을 승격할 수 없습니다.')
+    if (!canEditMemberProfile(profile) || getRoleRank(nextRole) > getRoleRank(currentRole)) {
+      setMemberMessage('자신과 같거나 높은 등급의 회원은 수정할 수 없습니다.')
       return
     }
 
-    setPromotingProfileId(profile.id)
+    setUpdatingRoleProfileId(profile.id)
     setMemberMessage('')
     try {
-      const { error } = await supabase.rpc('promote_profile_role', {
+      const { error } = await supabase.rpc('update_profile_role', {
         target_profile_id: profile.id,
         next_role: nextRole,
       })
 
       if (error) throw error
 
-      setMemberMessage(`${profile.username || profile.name || '회원'}님의 권한을 ${getRoleLabel(nextRole, true)}로 승격했습니다.`)
+      setMemberMessage(`${profile.username || profile.name || '회원'}님의 등급을 ${getRoleLabel(nextRole, true)}로 변경했습니다.`)
       await fetchMemberProfiles()
     } catch (error) {
       const message = typeof error === 'object' && error !== null && 'message' in error ? String((error as { message?: unknown }).message ?? '알 수 없는 오류') : '알 수 없는 오류'
-      setMemberMessage(`권한 승격 실패: ${message}`)
+      setMemberMessage(`등급 변경 실패: ${message}`)
     } finally {
-      setPromotingProfileId(null)
+      setUpdatingRoleProfileId(null)
+    }
+  }
+
+  function openSuspensionDialog(profile: MemberProfileRow) {
+    if (!canEditMemberProfile(profile)) {
+      setMemberMessage('자신과 같거나 높은 등급의 회원은 수정할 수 없습니다.')
+      return
+    }
+
+    const start = new Date()
+    const end = new Date()
+    end.setDate(start.getDate() + 7)
+    setSuspensionProfile(profile)
+    setSuspensionStartsAt(formatDateInputValue(start))
+    setSuspensionEndsAt(formatDateInputValue(end))
+    setSuspensionPermanent(false)
+    setMemberMessage('')
+  }
+
+  async function handleSuspendProfile() {
+    if (!supabase || !isLoggedIn || !canManageApprovals || !suspensionProfile) {
+      setMemberMessage('관리자 또는 부관리자만 회원 자격을 관리할 수 있습니다.')
+      return
+    }
+
+    if (!canEditMemberProfile(suspensionProfile)) {
+      setMemberMessage('자신과 같거나 높은 등급의 회원은 수정할 수 없습니다.')
+      return
+    }
+
+    if (!suspensionPermanent && (!suspensionStartsAt || !suspensionEndsAt)) {
+      setMemberMessage('정지 시작일과 종료일을 선택해주세요.')
+      return
+    }
+
+    const suspensionStart = suspensionStartsAt ? new Date(`${suspensionStartsAt}T00:00:00`).toISOString() : new Date().toISOString()
+    const suspensionEnd = suspensionPermanent ? null : new Date(`${suspensionEndsAt}T23:59:59`).toISOString()
+
+    if (!suspensionPermanent && suspensionEnd && new Date(suspensionStart).getTime() > new Date(suspensionEnd).getTime()) {
+      setMemberMessage('정지 종료일은 시작일 이후여야 합니다.')
+      return
+    }
+
+    setSuspendingProfileId(suspensionProfile.id)
+    setMemberMessage('')
+    try {
+      const { error } = await supabase.rpc('suspend_profile', {
+        target_profile_id: suspensionProfile.id,
+        suspension_start: suspensionStart,
+        suspension_end: suspensionEnd,
+        permanent: suspensionPermanent,
+      })
+
+      if (error) throw error
+
+      setMemberMessage(`${suspensionProfile.username || suspensionProfile.name || '회원'}님의 회원 자격 박탈이 완료되었습니다.`)
+      setSuspensionProfile(null)
+      await fetchMemberProfiles()
+    } catch (error) {
+      const message = typeof error === 'object' && error !== null && 'message' in error ? String((error as { message?: unknown }).message ?? '알 수 없는 오류') : '알 수 없는 오류'
+      setMemberMessage(`회원 자격 박탈 실패: ${message}`)
+    } finally {
+      setSuspendingProfileId(null)
     }
   }
 
@@ -1898,6 +2093,60 @@ function AppShell() {
     )
   }
 
+  function renderRejectedPage() {
+    return (
+      <SectionShell eyebrow="ACCOUNT LIMITED" title="회원가입 신청이 거절되었습니다" description="가입 승인 전과 동일하게 일부 회원 전용 기능 이용이 제한됩니다.">
+        <div className="rounded-[1.5rem] border border-red-100 bg-red-50 p-6">
+          <div className="text-base font-semibold text-red-800">현재 계정은 승인 목록에서 거절 처리되었습니다.</div>
+          <p className="mt-2 text-sm leading-relaxed text-red-700">
+            거절 일시: {rejectedAt ? formatJoinedDate(rejectedAt) : '-'}
+          </p>
+          <div className="mt-5 flex flex-col gap-3 sm:flex-row">
+            <button
+              onClick={() => navigate('/mypage')}
+              className="rounded-2xl bg-red-600 px-6 py-3 text-sm font-semibold text-white shadow-lg shadow-red-600/20 transition hover:bg-red-700"
+            >
+              마이페이지로 이동
+            </button>
+            <button
+              onClick={() => navigate('/')}
+              className="rounded-2xl border border-red-200 bg-white px-6 py-3 text-sm font-semibold text-red-700 transition hover:border-red-300"
+            >
+              홈으로 이동
+            </button>
+          </div>
+        </div>
+      </SectionShell>
+    )
+  }
+
+  function renderSuspendedPage() {
+    return (
+      <SectionShell eyebrow="ACCOUNT LIMITED" title="회원 자격이 정지되었습니다" description="정지 기간에는 회원 전용 기능 이용이 제한됩니다.">
+        <div className="rounded-[1.5rem] border border-red-100 bg-red-50 p-6">
+          <div className="text-base font-semibold text-red-800">현재 계정은 회원 자격 정지 상태입니다.</div>
+          <p className="mt-2 text-sm leading-relaxed text-red-700">
+            정지 기간: {currentSuspensionLabel}
+          </p>
+          <div className="mt-5 flex flex-col gap-3 sm:flex-row">
+            <button
+              onClick={() => navigate('/mypage')}
+              className="rounded-2xl bg-red-600 px-6 py-3 text-sm font-semibold text-white shadow-lg shadow-red-600/20 transition hover:bg-red-700"
+            >
+              마이페이지로 이동
+            </button>
+            <button
+              onClick={() => navigate('/')}
+              className="rounded-2xl border border-red-200 bg-white px-6 py-3 text-sm font-semibold text-red-700 transition hover:border-red-300"
+            >
+              홈으로 이동
+            </button>
+          </div>
+        </div>
+      </SectionShell>
+    )
+  }
+
   function requireLogin(renderChildren: () => ReactNode) {
     if (!isLoggedIn) {
       return renderLoginRequiredPage()
@@ -1909,6 +2158,12 @@ function AppShell() {
   function requireApproved(renderChildren: () => ReactNode) {
     if (!isLoggedIn) {
       return renderLoginRequiredPage()
+    }
+    if (isRejected) {
+      return renderRejectedPage()
+    }
+    if (currentSuspensionActive) {
+      return renderSuspendedPage()
     }
     if (!isApproved && !canManageApprovals) {
       return renderApprovalRequiredPage()
@@ -2325,9 +2580,18 @@ function AppShell() {
       return <Navigate to="/login" replace />
     }
 
+    const membershipStatus = isRejected
+      ? '가입 거절'
+      : currentSuspensionActive
+        ? `정지 중 · ${currentSuspensionLabel}`
+        : isApproved
+          ? '정상'
+          : '승인 대기'
+
     const accountRows = [
       ['아이디', currentUsername || '-'],
       ['현재 등급', getRoleLabel(currentRole, isApproved)],
+      ['회원 상태', membershipStatus],
       ['학번 정보', [currentGrade, currentClassNo, currentStudentNo].every((value) => value !== null) ? `${currentGrade}학년 ${currentClassNo}반 ${currentStudentNo}번` : '-'],
       ['가입일', formatJoinedDate(currentJoinedAt)],
     ] as const
@@ -2607,7 +2871,7 @@ function AppShell() {
           </div>
 
           {approvalMessage && (
-            <div className={`rounded-2xl border px-4 py-3 text-sm font-medium ${approvalMessage.includes('완료') ? 'border-blue-100 bg-blue-50 text-blue-700' : 'border-red-100 bg-red-50 text-red-600'}`}>
+            <div className={`rounded-2xl border px-4 py-3 text-sm font-medium ${approvalMessage.includes('완료') || approvalMessage.includes('거절했습니다') ? 'border-blue-100 bg-blue-50 text-blue-700' : 'border-red-100 bg-red-50 text-red-600'}`}>
               {approvalMessage}
             </div>
           )}
@@ -2650,13 +2914,22 @@ function AppShell() {
                               </button>
                             </td>
                             <td className="px-5 py-4">
+                              <div className="flex flex-wrap gap-2">
                               <button
                                 onClick={() => handleApproveProfile(profile.id)}
-                                disabled={approvingProfileId === profile.id}
+                                disabled={approvingProfileId === profile.id || rejectingProfileId === profile.id}
                                 className="rounded-2xl bg-blue-700 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-60"
                               >
                                 {approvingProfileId === profile.id ? '승인 중...' : '승인'}
                               </button>
+                                <button
+                                  onClick={() => handleRejectProfile(profile.id)}
+                                  disabled={approvingProfileId === profile.id || rejectingProfileId === profile.id}
+                                  className="rounded-2xl bg-red-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-60"
+                                >
+                                  {rejectingProfileId === profile.id ? '거절 중...' : '거절'}
+                                </button>
+                              </div>
                             </td>
                           </tr>
                           {expanded && (
@@ -2698,13 +2971,74 @@ function AppShell() {
                       )
                     })}
                   </tbody>
-                </table>
+	                </table>
+	              </div>
+	            )}
+	          </div>
+            {suspensionProfile && (
+              <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/35 px-4 py-8">
+                <div className="w-full max-w-md rounded-[1.5rem] border border-slate-200 bg-white p-6 shadow-2xl">
+                  <div className="text-sm font-semibold tracking-[0.16em] text-red-600">MEMBERSHIP</div>
+                  <h3 className="mt-2 text-2xl font-black tracking-tight text-slate-900">회원 자격 박탈</h3>
+                  <p className="mt-2 text-sm leading-relaxed text-slate-600">
+                    {suspensionProfile.username || suspensionProfile.name || '회원'}님의 정지 기간을 선택해주세요.
+                  </p>
+
+                  <label className="mt-5 flex items-center gap-3 rounded-2xl border border-red-100 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">
+                    <input
+                      type="checkbox"
+                      checked={suspensionPermanent}
+                      onChange={(e) => setSuspensionPermanent(e.target.checked)}
+                      className="h-4 w-4 accent-red-600"
+                    />
+                    영구정지
+                  </label>
+
+                  <div className="mt-5 grid gap-4 sm:grid-cols-2">
+                    <div>
+                      <label className="mb-2 block text-sm font-semibold text-slate-700">시작일</label>
+                      <input
+                        type="date"
+                        value={suspensionStartsAt}
+                        onChange={(e) => setSuspensionStartsAt(e.target.value)}
+                        className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none transition focus:border-red-300 focus:bg-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="mb-2 block text-sm font-semibold text-slate-700">종료일</label>
+                      <input
+                        type="date"
+                        value={suspensionEndsAt}
+                        onChange={(e) => setSuspensionEndsAt(e.target.value)}
+                        disabled={suspensionPermanent}
+                        className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none transition focus:border-red-300 focus:bg-white disabled:cursor-not-allowed disabled:opacity-50"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:justify-end">
+                    <button
+                      type="button"
+                      onClick={() => setSuspensionProfile(null)}
+                      className="rounded-2xl border border-slate-300 bg-white px-5 py-3 text-sm font-semibold text-slate-800 transition hover:border-slate-400"
+                    >
+                      취소
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void handleSuspendProfile()}
+                      disabled={suspendingProfileId === suspensionProfile.id}
+                      className="rounded-2xl bg-red-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {suspendingProfileId === suspensionProfile.id ? '처리 중...' : '박탈 적용'}
+                    </button>
+                  </div>
+                </div>
               </div>
             )}
-          </div>
-        </div>
-      </SectionShell>
-    )
+	        </div>
+	      </SectionShell>
+	    )
   }
   function MemberManagementPage() {
     if (!isLoggedIn) {
@@ -2719,15 +3053,10 @@ function AppShell() {
       )
     }
 
-    const getNextRole = (profile: MemberProfileRow): UserRole | null => {
-      const role = normalizeUserRole(profile.role, profile.is_admin)
-      if (role === 'member') return 'sub_admin'
-      if (role === 'sub_admin' && isAdmin) return 'admin'
-      return null
-    }
+    const editableRoleOptions = getEditableRoleOptions()
 
     return (
-      <SectionShell eyebrow="ADMIN" title="회원 관리" description="승인 완료된 회원을 확인하고 권한을 승격하는 관리자 전용 화면이야. 부관리자는 일반 회원만, 관리자는 부관리자까지 관리할 수 있어." wide>
+      <SectionShell eyebrow="ADMIN" title="회원 관리" description="승인 완료된 회원의 등급과 회원 자격을 관리하는 화면이야. 부관리자는 일반 회원만, 관리자는 부관리자까지 관리할 수 있어." wide>
         <div className="space-y-5">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="text-sm font-semibold text-slate-500">
@@ -2751,7 +3080,7 @@ function AppShell() {
           </div>
 
           {memberMessage && (
-            <div className={`rounded-2xl border px-4 py-3 text-sm font-medium ${memberMessage.includes('승격했습니다') ? 'border-blue-100 bg-blue-50 text-blue-700' : 'border-red-100 bg-red-50 text-red-600'}`}>
+            <div className={`rounded-2xl border px-4 py-3 text-sm font-medium ${memberMessage.includes('변경했습니다') || memberMessage.includes('완료되었습니다') ? 'border-blue-100 bg-blue-50 text-blue-700' : 'border-red-100 bg-red-50 text-red-600'}`}>
               {memberMessage}
             </div>
           )}
@@ -2768,27 +3097,56 @@ function AppShell() {
                     <tr className="border-b border-slate-200">
                       <th className="px-5 py-4 text-sm font-bold">아이디</th>
                       <th className="px-5 py-4 text-sm font-bold">이름</th>
-                      <th className="px-5 py-4 text-sm font-bold">권한</th>
+                      <th className="px-5 py-4 text-sm font-bold">등급</th>
+                      <th className="px-5 py-4 text-sm font-bold">회원 자격</th>
                       <th className="px-5 py-4 text-sm font-bold">가입일</th>
                       <th className="px-5 py-4 text-sm font-bold">상세</th>
-                      <th className="px-5 py-4 text-sm font-bold">승격</th>
                     </tr>
                   </thead>
                   <tbody className="text-slate-700">
                     {memberProfiles.map((profile, index) => {
                       const role = normalizeUserRole(profile.role, profile.is_admin)
                       const expanded = expandedMemberProfileId === profile.id
-                      const nextRole = getNextRole(profile)
+                      const editable = canEditMemberProfile(profile)
+                      const suspensionActive = isSuspensionActive(profile)
+                      const suspensionLabel = getSuspensionLabel(profile)
                       const subjectRows = getProfileSubjectRows(profile)
 
                       return (
                         <Fragment key={profile.id}>
                           <tr className={index !== memberProfiles.length - 1 || expanded ? 'border-b border-slate-200' : ''}>
-                            <td className="px-5 py-4 text-sm font-bold text-slate-900">{profile.username || '-'}</td>
-                            <td className="px-5 py-4 text-sm">{profile.name || '-'}</td>
-                            <td className="px-5 py-4 text-sm">{getRoleLabel(role, true)}</td>
-                            <td className="px-5 py-4 text-sm">{formatJoinedDate(profile.created_at ?? '')}</td>
-                            <td className="px-5 py-4">
+	                            <td className="px-5 py-4 text-sm font-bold text-slate-900">{profile.username || '-'}</td>
+	                            <td className="px-5 py-4 text-sm">{profile.name || '-'}</td>
+	                            <td className="px-5 py-4">
+                                <select
+                                  value={role}
+                                  onChange={(e) => void handleRoleChange(profile, e.target.value as UserRole)}
+                                  disabled={!editable || updatingRoleProfileId === profile.id}
+                                  className="min-w-32 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-800 outline-none transition focus:border-blue-400 disabled:cursor-not-allowed disabled:opacity-60"
+                                >
+                                  {editableRoleOptions.map((option) => (
+                                    <option key={option} value={option}>{getRoleLabel(option, true)}</option>
+                                  ))}
+                                </select>
+                                {!editable && <div className="mt-1 text-xs font-semibold text-slate-400">수정 불가</div>}
+                              </td>
+                              <td className="px-5 py-4">
+                                <div className="flex min-w-40 flex-col items-start gap-2">
+                                  <span className={`rounded-full px-3 py-1 text-xs font-bold ${suspensionActive ? 'bg-red-50 text-red-700 ring-1 ring-red-100' : 'bg-slate-100 text-slate-600'}`}>
+                                    {suspensionLabel}
+                                  </span>
+                                  <button
+                                    type="button"
+                                    onClick={() => openSuspensionDialog(profile)}
+                                    disabled={!editable || suspendingProfileId === profile.id}
+                                    className="rounded-2xl bg-red-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-60"
+                                  >
+                                    {suspendingProfileId === profile.id ? '처리 중...' : '회원 자격 박탈'}
+                                  </button>
+                                </div>
+                              </td>
+	                            <td className="px-5 py-4 text-sm">{formatJoinedDate(profile.created_at ?? '')}</td>
+	                            <td className="px-5 py-4">
                               <button
                                 type="button"
                                 onClick={() => setExpandedMemberProfileId((prev) => (prev === profile.id ? null : profile.id))}
@@ -2797,33 +3155,20 @@ function AppShell() {
                                 {expanded ? '접기' : '상세'}
                               </button>
                             </td>
-                            <td className="px-5 py-4">
-                              {nextRole ? (
-                                <button
-                                  type="button"
-                                  onClick={() => handlePromoteProfile(profile)}
-                                  disabled={promotingProfileId === profile.id}
-                                  className="rounded-2xl bg-blue-700 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-60"
-                                >
-                                  {promotingProfileId === profile.id ? '승격 중...' : `${getRoleLabel(nextRole, true)}로 승격`}
-                                </button>
-                              ) : (
-                                <span className="text-sm text-slate-400">승격 불가</span>
-                              )}
-                            </td>
-                          </tr>
-                          {expanded && (
-                            <tr className={index !== memberProfiles.length - 1 ? 'border-b border-slate-200' : ''}>
-                              <td colSpan={6} className="bg-slate-50 px-5 py-5">
-                                <div className="grid gap-4 lg:grid-cols-[0.8fr_1.2fr]">
+	                          </tr>
+	                          {expanded && (
+	                            <tr className={index !== memberProfiles.length - 1 ? 'border-b border-slate-200' : ''}>
+	                              <td colSpan={6} className="bg-slate-50 px-5 py-5">
+	                                <div className="grid gap-4 lg:grid-cols-[0.8fr_1.2fr]">
                                   <div className="rounded-2xl border border-slate-200 bg-white p-4">
                                     <div className="text-xs font-semibold tracking-[0.16em] text-blue-700">PROFILE</div>
                                     <div className="mt-3 grid gap-3 sm:grid-cols-2">
                                       {[
-                                        ['학번', formatStudentInfo(profile)],
-                                        ['이메일', profile.email || '-'],
-                                        ['권한', getRoleLabel(role, true)],
-                                        ['가입일', formatJoinedDate(profile.created_at ?? '')],
+	                                        ['학번', formatStudentInfo(profile)],
+	                                        ['이메일', profile.email || '-'],
+	                                        ['등급', getRoleLabel(role, true)],
+                                          ['회원 자격', suspensionLabel],
+	                                        ['가입일', formatJoinedDate(profile.created_at ?? '')],
                                       ].map(([label, value]) => (
                                         <div key={label} className="rounded-2xl bg-slate-50 px-4 py-3">
                                           <div className="text-xs font-semibold text-slate-500">{label}</div>
