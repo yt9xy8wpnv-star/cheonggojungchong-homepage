@@ -5037,12 +5037,12 @@ function AppShell() {
     const visiblePosts = regularPosts.slice(pageStart, pageStart + communityPostsPerPage)
 
     return (
-      <SectionShell eyebrow="COMMUNITY" title="자유게시판" description="정시를 준비하며 떠오른 생각을 공유하는 우리들의 공간." wide className="community-font">
+      <SectionShell eyebrow="COMMUNITY" title="자유게시판" description="정시를 준비하며 떠오른 생각을 공유하는 우리들의 공간." wide className="community-font community-board-shell">
         <div className="space-y-4">
           <div className="flex flex-col gap-4 border-b border-slate-300 pb-5 sm:flex-row sm:items-end sm:justify-between">
             <div>
-              <div className="text-3xl font-black tracking-tight text-slate-950">전체 게시글</div>
-              <div className="mt-2 text-sm font-black tracking-[0.22em] text-slate-500">{communityPosts.length} POSTS FOUND</div>
+              <div className="text-2xl font-black tracking-normal text-slate-900 md:text-3xl">전체 게시글</div>
+              <div className="mt-2 text-sm font-bold tracking-normal text-blue-700">{communityPosts.length} posts found</div>
             </div>
             <button
               type="button"
@@ -5050,7 +5050,7 @@ function AppShell() {
                 setCommunityMessage('')
                 navigate('/notice/community/new')
               }}
-              className="rounded-md border border-slate-950 bg-slate-950 px-5 py-3 text-sm font-black text-white transition hover:border-blue-700 hover:bg-blue-700"
+              className="rounded-md border border-blue-700 bg-blue-700 px-5 py-3 text-sm font-black text-white transition-colors hover:border-blue-800 hover:bg-blue-800"
             >
               새 글 작성하기
             </button>
@@ -5064,16 +5064,16 @@ function AppShell() {
 
           {noticePosts.length > 0 && (
             <div className="overflow-hidden rounded-lg border border-slate-300 bg-white">
-              <div className="flex flex-col gap-3 border-b border-slate-300 bg-slate-950 px-5 py-4 text-white sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex flex-col gap-3 border-b border-blue-800 bg-blue-700 px-5 py-4 text-white sm:flex-row sm:items-center sm:justify-between">
                 <div>
                   <div className="text-xs font-black tracking-[0.18em] text-blue-200">NOTICE</div>
-                  <div className="mt-1 text-lg font-black tracking-tight">공지사항 {noticePosts.length}</div>
+                  <div className="mt-1 text-lg font-black tracking-normal">공지사항 {noticePosts.length}</div>
                 </div>
                 {canExpandNotices && (
                   <button
                     type="button"
                     onClick={() => setCommunityNoticesExpanded((prev) => !prev)}
-                    className="w-fit rounded-md border border-white/30 bg-white/10 px-4 py-2 text-sm font-black text-white transition hover:bg-white/20"
+                    className="w-fit rounded-md border border-white/30 bg-white/10 px-4 py-2 text-sm font-black text-white transition-colors hover:bg-white/20"
                   >
                     {communityNoticesExpanded ? '접기' : `펼치기 (${noticePosts.length - collapsedNoticeLimit})`}
                   </button>
@@ -5089,7 +5089,7 @@ function AppShell() {
                       setCommunityDetailMessage('')
                       navigate(`/notice/community/${post.id}`)
                     }}
-                    className="grid w-full grid-cols-[4.5rem_1fr_2rem] items-center gap-4 border-l-4 border-blue-700 px-5 py-4 text-left transition hover:bg-slate-50 md:grid-cols-[5.5rem_1fr_2.5rem] md:px-6"
+                    className="grid w-full grid-cols-[4.5rem_1fr_2rem] items-center gap-4 border-l-4 border-blue-700 px-5 py-4 text-left transition-colors hover:bg-blue-50/45 md:grid-cols-[5.5rem_1fr_2.5rem] md:px-6"
                   >
                     <div className="text-center">
                       <div className="rounded-md bg-blue-700 px-2 py-1 text-xs font-black text-white">공지</div>
@@ -5097,7 +5097,7 @@ function AppShell() {
                     </div>
                     <div className="min-w-0">
                       <div className="flex items-center gap-2">
-                        <div className="truncate text-lg font-black tracking-tight text-slate-950 md:text-xl">{post.title}</div>
+                        <div className="truncate text-lg font-black tracking-normal text-slate-900 md:text-xl">{post.title}</div>
                         {post.imageUrls.length > 0 && <span className="shrink-0 rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs font-black text-slate-500">사진 {post.imageUrls.length}</span>}
                       </div>
                       <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm font-black">
@@ -5133,7 +5133,7 @@ function AppShell() {
                       setCommunityDetailMessage('')
                       navigate(`/notice/community/${post.id}`)
                     }}
-                    className="grid w-full grid-cols-[4.5rem_1fr_2rem] items-center gap-4 px-5 py-4 text-left transition hover:bg-slate-50 md:grid-cols-[5.5rem_1fr_2.5rem] md:px-6"
+                    className="grid w-full grid-cols-[4.5rem_1fr_2rem] items-center gap-4 px-5 py-4 text-left transition-colors hover:bg-blue-50/35 md:grid-cols-[5.5rem_1fr_2.5rem] md:px-6"
                   >
                     <div className="text-center">
                       <div className="text-sm font-black text-slate-400">#{post.id}</div>
@@ -5141,7 +5141,7 @@ function AppShell() {
                     </div>
                     <div className="min-w-0">
                       <div className="flex items-center gap-2">
-                        <div className="truncate text-lg font-black tracking-tight text-slate-950 md:text-xl">{post.title}</div>
+                        <div className="truncate text-lg font-black tracking-normal text-slate-900 md:text-xl">{post.title}</div>
                         {post.imageUrls.length > 0 && <span className="shrink-0 rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs font-black text-slate-500">사진 {post.imageUrls.length}</span>}
                       </div>
                       <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm font-black">
@@ -5179,7 +5179,7 @@ function AppShell() {
                   key={page}
                   type="button"
                   onClick={() => setCommunityPage(page)}
-                  className={`h-10 w-10 rounded-md text-sm font-black transition ${page === safePage ? 'bg-slate-950 text-white' : 'border border-slate-300 bg-white text-slate-700 hover:border-blue-500 hover:text-blue-700'}`}
+                  className={`h-10 w-10 rounded-md text-sm font-black transition-colors ${page === safePage ? 'bg-blue-700 text-white' : 'border border-slate-300 bg-white text-slate-700 hover:border-blue-500 hover:text-blue-700'}`}
                 >
                   {page}
                 </button>
@@ -5209,7 +5209,7 @@ function AppShell() {
     const postAlreadyReported = Boolean(postReportKey && isCommunityTargetReported(postReportKey))
 
     return (
-      <SectionShell eyebrow="COMMUNITY" title="자유게시판" description="게시글 내용을 확인하는 공간이야." wide className="community-font">
+      <SectionShell eyebrow="COMMUNITY" title="자유게시판" description="게시글 내용을 확인하는 공간이야." wide className="community-font community-board-shell">
         <div className="space-y-6">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <button
@@ -5222,7 +5222,7 @@ function AppShell() {
             <button
               type="button"
               onClick={() => navigate('/notice/community/new')}
-              className="w-fit rounded-md border border-slate-950 bg-slate-950 px-5 py-3 text-sm font-black text-white transition hover:border-blue-700 hover:bg-blue-700"
+              className="w-fit rounded-md border border-blue-700 bg-blue-700 px-5 py-3 text-sm font-black text-white transition-colors hover:border-blue-800 hover:bg-blue-800"
             >
               새 글 작성하기
             </button>
@@ -5240,11 +5240,11 @@ function AppShell() {
                     <input
                       value={editingCommunityPostTitle}
                       onChange={(event) => setEditingCommunityPostTitle(event.target.value)}
-                      className="w-full rounded-md border border-slate-300 bg-white px-5 py-4 text-2xl font-black tracking-tight text-slate-950 outline-none transition focus:border-blue-500 md:px-6 md:py-5 md:text-4xl"
+                      className="w-full rounded-md border border-slate-300 bg-white px-5 py-4 text-2xl font-black tracking-normal text-slate-900 outline-none transition-colors focus:border-blue-500 md:px-6 md:py-5 md:text-4xl"
                       maxLength={80}
                     />
                   ) : (
-                    <h2 className="text-3xl font-black tracking-tight text-slate-950 md:text-5xl">{post.title}</h2>
+                    <h2 className="text-3xl font-black tracking-normal text-slate-900 md:text-4xl">{post.title}</h2>
                   )}
                   <div className="mt-6 flex flex-wrap items-center gap-3 text-sm font-semibold text-slate-600 md:text-base">
                     {post.isNotice && <span className="rounded-md bg-blue-700 px-3 py-1 text-xs font-black text-white">공지</span>}
@@ -5324,7 +5324,7 @@ function AppShell() {
                     <textarea
                       value={editingCommunityPostContent}
                       onChange={(event) => setEditingCommunityPostContent(event.target.value)}
-                      className="min-h-[18rem] w-full resize-y rounded-md border border-slate-300 bg-slate-50 px-5 py-5 text-base font-medium leading-8 text-slate-800 outline-none transition focus:border-blue-500 focus:bg-white md:text-lg"
+                      className="min-h-[18rem] w-full resize-y rounded-md border border-slate-300 bg-slate-50 px-5 py-5 text-base font-medium leading-8 text-slate-800 outline-none transition-colors focus:border-blue-500 focus:bg-white md:text-lg"
                       maxLength={10000}
                     />
                   ) : (
@@ -5400,7 +5400,7 @@ function AppShell() {
 
           {post && (
             <div className="space-y-5">
-              <div className="text-2xl font-black tracking-tight text-slate-950">댓글 {communityComments.length}</div>
+              <div className="border-b border-slate-300 pb-3 text-2xl font-black tracking-normal text-slate-900">댓글 {communityComments.length}</div>
 
               <div className="rounded-lg border border-slate-300 bg-white p-5 md:p-7">
                 <textarea
@@ -5524,7 +5524,7 @@ function AppShell() {
 
   function CommunityWritePage() {
     return (
-      <SectionShell eyebrow="COMMUNITY" title="새로운 게시글 작성" description="정시와 관련된 생각을 공유해보세요!" wide className="community-font">
+      <SectionShell eyebrow="COMMUNITY" title="새로운 게시글 작성" description="정시와 관련된 생각을 공유해보세요!" wide className="community-font community-board-shell">
         <div className="space-y-6">
           <div className="flex justify-end">
             <button
@@ -5565,7 +5565,7 @@ function AppShell() {
               <div className="rounded-lg border border-slate-300 bg-slate-50 p-5 md:p-6">
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div>
-                    <div className="text-lg font-black tracking-tight text-slate-900">사진 첨부</div>
+                    <div className="text-lg font-black tracking-normal text-slate-900">사진 첨부</div>
                     <div className="mt-1 text-sm font-semibold text-slate-500">최대 5장, 장당 5MB 이하의 이미지를 첨부할 수 있습니다.</div>
                   </div>
                   <button
